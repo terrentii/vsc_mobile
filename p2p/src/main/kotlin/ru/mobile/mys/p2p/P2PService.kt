@@ -1,6 +1,7 @@
 package ru.mobile.mys.p2p
 
 import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.TimeUnit
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -12,6 +13,16 @@ import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.withTimeoutOrNull
 import okhttp3.OkHttpClient
 import ru.mobile.mys.crypto.Ristretto
+
+/**
+ * Медленному серверу — 30 с на соединение; ping каждые 20 с держит NAT/прокси
+ * живыми, пока ждём пира минутами без кадров.
+ */
+fun defaultHttp(): OkHttpClient = OkHttpClient.Builder()
+    .connectTimeout(30, TimeUnit.SECONDS)
+    .readTimeout(30, TimeUnit.SECONDS)
+    .pingInterval(20, TimeUnit.SECONDS)
+    .build()
 
 sealed interface P2PEvent {
     class Message(val conversationId: Long, val messageId: Long) : P2PEvent
@@ -27,7 +38,7 @@ class P2PService(
     private val store: P2PStore,
     private val rendezvousUrl: String,
     private val ristretto: Ristretto,
-    private val http: OkHttpClient = OkHttpClient(),
+    private val http: OkHttpClient = defaultHttp(),
     private val connectTimeoutMs: Long = 300_000,
     private val handshakeTimeoutMs: Long = 30_000,
 ) {
