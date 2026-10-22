@@ -28,9 +28,9 @@ sealed interface CentralEvent {
 /** Оркестратор «Центра» — порт mys_centralized/service.py на корутинах. */
 class CentralService(
     private val store: CentralStore,
-    // медленному серверу — 30 с на соединение и ответ; ping держит /ws и NAT
+    // медленному серверу (ответ soufos.ru бывает 18–30 с) — 60 с на соединение и ответ; ping держит /ws и NAT
     private val http: OkHttpClient = OkHttpClient.Builder()
-        .connectTimeout(30, TimeUnit.SECONDS).readTimeout(30, TimeUnit.SECONDS)
+        .connectTimeout(60, TimeUnit.SECONDS).readTimeout(60, TimeUnit.SECONDS)
         .pingInterval(20, TimeUnit.SECONDS).build(),
     private val roomPollMs: Long = 20_000,
 ) {

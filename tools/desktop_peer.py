@@ -21,14 +21,14 @@ vault = create_vault(os.path.join(vault_dir, "peer.db"), b"pw",
                      params={"time_cost": 1, "memory_cost": 8, "parallelism": 1})
 inbox: queue.Queue = queue.Queue()
 # Колбэк — в потоке сервиса; отвечать оттуда нельзя (send ждёт тот же loop) — через очередь.
-svc = P2PService(vault, url, on_message=lambda cid, body: inbox.put(cid), connect_timeout=60.0)
+svc = P2PService(vault, url, on_message=lambda cid, body: inbox.put(cid), connect_timeout=300.0)
 svc.start()
 try:
     cid = svc.start_session(phrase)
     print("connected", svc.role_of(cid).name, flush=True)
     handled = 0
     while True:
-        inbox.get(timeout=60)
+        inbox.get(timeout=180)
         incoming = [m for m in vault.messages.list(cid) if m["direction"] == "in"]
         msg = incoming[handled]
         handled += 1

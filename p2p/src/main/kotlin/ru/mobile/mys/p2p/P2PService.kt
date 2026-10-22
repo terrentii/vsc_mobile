@@ -15,12 +15,12 @@ import okhttp3.OkHttpClient
 import ru.mobile.mys.crypto.Ristretto
 
 /**
- * Медленному серверу — 30 с на соединение; ping каждые 20 с держит NAT/прокси
+ * Медленному серверу (рукопожатие soufos.ru бывает 18–30 с) — 60 с на соединение; ping каждые 20 с держит NAT/прокси
  * живыми, пока ждём пира минутами без кадров.
  */
 fun defaultHttp(): OkHttpClient = OkHttpClient.Builder()
-    .connectTimeout(30, TimeUnit.SECONDS)
-    .readTimeout(30, TimeUnit.SECONDS)
+    .connectTimeout(60, TimeUnit.SECONDS)
+    .readTimeout(60, TimeUnit.SECONDS)
     .pingInterval(20, TimeUnit.SECONDS)
     .build()
 
@@ -40,7 +40,8 @@ class P2PService(
     private val ristretto: Ristretto,
     private val http: OkHttpClient = defaultHttp(),
     private val connectTimeoutMs: Long = 300_000,
-    private val handshakeTimeoutMs: Long = 30_000,
+    // два обмена кадрами через relay; у перегруженного сервера кадр идёт ~12 с
+    private val handshakeTimeoutMs: Long = 120_000,
 ) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val sessions = ConcurrentHashMap<Long, Session>()
