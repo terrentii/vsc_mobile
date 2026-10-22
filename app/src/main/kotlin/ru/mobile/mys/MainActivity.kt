@@ -1,16 +1,34 @@
 package ru.mobile.mys
 
 import android.os.Bundle
-import androidx.activity.ComponentActivity
+import android.view.WindowManager
 import androidx.activity.compose.setContent
-import androidx.compose.material3.Text
-import ru.mobile.mys.crypto.Ristretto
+import androidx.fragment.app.FragmentActivity
+import ru.mobile.mys.ui.MysTheme
+import ru.mobile.mys.ui.Root
 
-class MainActivity : ComponentActivity() {
+/** FragmentActivity — для BiometricPrompt. FLAG_SECURE: нет скриншотов и превью в «Недавних». */
+class MainActivity : FragmentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        // ponytail: временный смоук libsodium на устройстве, уйдёт с UI под-проекта 5.
-        val ok = runCatching { Ristretto(sodium).scalarRandom() }.isSuccess
-        setContent { Text("МЫС · ristretto255: ${if (ok) "ok" else "нет"}") }
+        window.setFlags(WindowManager.LayoutParams.FLAG_SECURE, WindowManager.LayoutParams.FLAG_SECURE)
+        setContent { MysTheme(AppGraph.dark) { Root() } }
+    }
+
+    override fun onStart() {
+        super.onStart()
+        AppGraph.checkAutoLock()
+        AppGraph.foreground = true
+    }
+
+    override fun onStop() {
+        AppGraph.foreground = false
+        AppGraph.touch() // отсчёт автоблокировки — с момента ухода с экрана
+        super.onStop()
+    }
+
+    override fun onUserInteraction() {
+        super.onUserInteraction()
+        AppGraph.touch()
     }
 }
