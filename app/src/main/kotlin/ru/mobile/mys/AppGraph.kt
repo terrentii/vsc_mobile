@@ -31,6 +31,7 @@ import ru.mobile.mys.p2p.RendezvousException
 import ru.mobile.mys.storage.Vault
 import ru.mobile.mys.storage.VaultCentralStore
 import ru.mobile.mys.storage.VaultP2PStore
+import ru.mobile.mys.webrtc.WebRtcLink
 
 const val DECENTRALIZED = "decentralized"
 const val CENTRALIZED = "centralized"
@@ -63,6 +64,8 @@ object AppGraph {
     /** P2P: беседы с живым каналом и сроки ожидания пира (epoch ms). */
     val online = mutableStateMapOf<Long, Boolean>()
     val waiting = mutableStateMapOf<Long, Long>()
+    /** P2P: канал идёт напрямую (WebRTC), а не через сервер. */
+    val direct = mutableStateMapOf<Long, Boolean>()
 
     /** Тексты ошибок для баннера. */
     val errors = MutableSharedFlow<String>(extraBufferCapacity = 16, onBufferOverflow = BufferOverflow.DROP_OLDEST)
@@ -107,6 +110,13 @@ object AppGraph {
         } + "/p2p"
     }
 
+    /** STUN на хосте сервера (coturn, 3478/udp); в локалке и на эмуляторе хватает host-кандидатов. */
+    private fun iceServers(server: String): List<String> {
+        val host = server.substringAfter("://").substringBefore('/').substringBefore(':')
+        val local = host == "localhost" || host.startsWith("127.") || host.startsWith("10.0.2.") || host.startsWith("192.168.")
+        return if (local) emptyList() else listOf("stun:$host:3478")
+    }
+
     fun backgroundEnabled() = setting(K_BACKGROUND, "1") == "1"
 
     fun setBackground(on: Boolean) {
@@ -118,7 +128,12 @@ object AppGraph {
 
     /** Vault открыт — поднять сервисы режимов и фон. */
     fun unlocked(v: Vault) {
-        val p = P2PService(VaultP2PStore(v), rendezvousUrl(v.settings.get(K_SERVER) ?: DEFAULT_SERVER), Ristretto(sodium))
+        val server = v.settings.get(K_SERVER) ?: DEFAULT_SERVER
+        val ice = iceServers(server)
+        val p = P2PService(
+            VaultP2PStore(v), rendezvousUrl(server), Ristretto(sodium),
+            directLinks = { WebRtcLink(app, ice) },
+        )
         val c = CentralService(VaultCentralStore(v))
         p2p = p
         central = c
@@ -126,7 +141,11 @@ object AppGraph {
             scope.launch {
                 p.events.collect { e ->
                     when (e) {
-                        is P2PEvent.State -> online[e.conversationId] = e.connected
+                        is P2PEvent.State -> {
+                            online[e.conversationId] = e.connected
+                            if (!e.connected) direct.remove(e.conversationId)
+                        }
+                        is P2PEvent.Path -> direct[e.conversationId] = e.direct
                         is P2PEvent.Error -> errors.tryEmit(p2pMessage(e.error))
                         is P2PEvent.Message -> notifyIfBackground()
                     }
@@ -163,6 +182,7 @@ object AppGraph {
         vault = null
         online.clear()
         waiting.clear()
+        direct.clear()
         MysService.stop(app)
         return scope.launch {
             runCatching { p?.stop() }

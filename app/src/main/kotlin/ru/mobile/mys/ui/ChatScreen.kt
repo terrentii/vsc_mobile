@@ -174,7 +174,8 @@ fun ChatScreen(conversationId: Long, mode: String, onBack: () -> Unit) {
 private fun PeerStatus(conversationId: Long) {
     val c = colors
     val on = AppGraph.online[conversationId] == true
-    T(if (on) "● В сети · через сервер" else "● Не в сети", size = 14, color = if (on) c.success else c.text3, upper = true)
+    val path = if (AppGraph.direct[conversationId] == true) "напрямую" else "через сервер"
+    T(if (on) "● В сети · $path" else "● Не в сети", size = 14, color = if (on) c.success else c.text3, upper = true)
 }
 
 /** Нет канала: «Выйти на связь» или окно ожидания пира с обратным отсчётом. */
