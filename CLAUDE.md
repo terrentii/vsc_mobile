@@ -13,6 +13,7 @@ Android-клиент МЫС (Kotlin + Compose). Обязан работать в
 - Любое изменение формата байтов сверяется с десктопом через тест-векторы:
   `tools/gen_vectors.py` → `crypto/src/test/resources/vectors.json`.
 - SQLCipher `rawQuery(String, Object...)` — Java varargs: аргументы передавать через spread (`*args`), иначе массив уйдёт одним параметром.
+- Диалоги — только оверлеем в окне Activity (`ui/Theme.kt: Overlay`): системный `Dialog` — отдельное окно без FLAG_SECURE.
 - Адрес сервера не хардкодить (домен сменится) — только через настройку.
 
 ## Команды (внутри `nix develop`)
@@ -24,3 +25,5 @@ Android-клиент МЫС (Kotlin + Compose). Обязан работать в
 - Векторы: `$DESKTOP_PYTHON tools/gen_vectors.py ../vsc_desktop/src > crypto/src/test/resources/vectors.json` (python с зависимостями vsc_desktop)
 - P2P + интероп с десктопом: `DESKTOP_PYTHON=… VSC_WEB_PYTHON=… ./gradlew :p2p:test` (без переменных интероп пропускается)
 - «Центр» против живого vsc_web: `VSC_WEB_PYTHON=… ./gradlew :central:test` (без переменной живые тесты пропускаются; на NixOS ещё `LD_LIBRARY_PATH=$NIX_LD_LIBRARY_PATH` для eventlet)
+- Кадры экранов (adb screencap чёрный из-за FLAG_SECURE): `./gradlew :app:connectedDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.class=ru.mobile.mys.ScreenshotTest -Pandroid.testInstrumentationRunnerArguments.screenshots=1 -Pandroid.injected.androidTest.leaveApksInstalledAfterRun=true`, затем `adb pull /sdcard/Android/media/ru.mobile.mys/`
+- Живой P2P телефон ↔ десктоп через боевой сервер: на хосте `$DESKTOP_PYTHON tools/desktop_peer.py ../vsc_desktop/src wss://soufos.ru/p2p "<фраза>" <tmp>`, одновременно `adb shell am instrument -w -e class ru.mobile.mys.LiveSoufosP2PTest -e soufosPhrase "<фраза>" ru.mobile.mys.test/androidx.test.runner.AndroidJUnitRunner` (после `installDebug installDebugAndroidTest`)
