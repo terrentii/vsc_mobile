@@ -11,11 +11,13 @@ class Conversation(
     val createdAt: Long, val p2pPrs: ByteArray?,
 )
 
+/** [body] null — входящее вложение «Центра», ещё не докачанное. */
 class Message(
-    val id: Long, val conversationId: Long, val direction: String, val body: ByteArray,
+    val id: Long, val conversationId: Long, val direction: String, val body: ByteArray?,
     val status: String, val kind: String, val filename: String?, val mimeType: String?,
     val sender: String?, val wireSeq: Long?, val clientMsgId: String?,
     val sentAt: Long?, val receivedAt: Long?,
+    val mediaRef: String?, val replyAuthor: String?, val replySnippet: String?,
 )
 
 class SettingsRepo internal constructor(private val db: SQLiteDatabase) {
@@ -64,33 +66,51 @@ class ConversationsRepo internal constructor(private val db: SQLiteDatabase) {
 
 class MessagesRepo internal constructor(private val db: SQLiteDatabase) {
     private val cols = "SELECT id, conversation_id, direction, body, status, kind, filename, mime_type," +
-        " sender, wire_seq, client_msg_id, sent_at, received_at FROM messages"
+        " sender, wire_seq, client_msg_id, sent_at, received_at, media_ref, reply_author, reply_snippet FROM messages"
 
     private fun row(c: Cursor) = Message(
-        c.getLong(0), c.getLong(1), c.getString(2), c.blobOrNull(3) ?: ByteArray(0), c.getString(4),
+        c.getLong(0), c.getLong(1), c.getString(2), c.blobOrNull(3), c.getString(4),
         c.getString(5), c.stringOrNull(6), c.stringOrNull(7), c.stringOrNull(8), c.longOrNull(9),
         c.stringOrNull(10), c.longOrNull(11), c.longOrNull(12),
+        c.stringOrNull(13), c.stringOrNull(14), c.stringOrNull(15),
     )
 
     fun add(
-        conversationId: Long, direction: String, body: ByteArray, status: String,
+        conversationId: Long, direction: String, body: ByteArray?, status: String,
         kind: String = "text", filename: String? = null, mimeType: String? = null,
         sender: String? = null, wireSeq: Long? = null, clientMsgId: String? = null,
-    ): Long {
-        val now = System.currentTimeMillis()
-        return db.insertRow(
-            "messages", "conversation_id" to conversationId, "direction" to direction, "body" to body,
-            "status" to status, "kind" to kind, "filename" to filename, "mime_type" to mimeType,
-            "sender" to sender, "wire_seq" to wireSeq, "client_msg_id" to clientMsgId,
-            (if (direction == "out") "sent_at" else "received_at") to now,
-        )
-    }
+        mediaRef: String? = null, replyAuthor: String? = null, replySnippet: String? = null,
+        /** Серверное время (epoch ms); null — локальные часы. */
+        timestamp: Long? = null,
+    ): Long = db.insertRow(
+        "messages", "conversation_id" to conversationId, "direction" to direction, "body" to body,
+        "status" to status, "kind" to kind, "filename" to filename, "mime_type" to mimeType,
+        "sender" to sender, "wire_seq" to wireSeq, "client_msg_id" to clientMsgId,
+        "media_ref" to mediaRef, "reply_author" to replyAuthor, "reply_snippet" to replySnippet,
+        (if (direction == "out") "sent_at" else "received_at") to (timestamp ?: System.currentTimeMillis()),
+    )
 
     fun get(id: Long): Message? = db.select("$cols WHERE id=?", id) { row(it) }.firstOrNull()
 
     fun list(conversationId: Long): List<Message> = db.select("$cols WHERE conversation_id=? ORDER BY id", conversationId) { row(it) }
 
     fun setStatus(id: Long, status: String) = db.execSQL("UPDATE messages SET status=? WHERE id=?", arrayOf(status, id))
+
+    fun findByWire(conversationId: Long, wireSeq: Long): Message? =
+        db.select("$cols WHERE conversation_id=? AND wire_seq=? LIMIT 1", conversationId, wireSeq) { row(it) }.firstOrNull()
+
+    fun findOutByClientId(conversationId: Long, clientMsgId: String): Message? =
+        db.select("$cols WHERE conversation_id=? AND direction='out' AND client_msg_id=? LIMIT 1", conversationId, clientMsgId) { row(it) }.firstOrNull()
+
+    /** Своё исходящее без серверного id с тем же телом — дедуп эха без client_msg_id. */
+    fun findUnconfirmedOutByBody(conversationId: Long, body: ByteArray): Message? =
+        db.select("$cols WHERE conversation_id=? AND direction='out' AND wire_seq IS NULL AND body=? ORDER BY id LIMIT 1", conversationId, body) { row(it) }.firstOrNull()
+
+    fun markSent(id: Long, wireSeq: Long) = db.execSQL("UPDATE messages SET wire_seq=?, status='sent' WHERE id=?", arrayOf(wireSeq, id))
+
+    fun setBody(id: Long, body: ByteArray) = db.execSQL("UPDATE messages SET body=? WHERE id=?", arrayOf(body, id))
+
+    fun delete(id: Long) = db.execSQL("DELETE FROM messages WHERE id=?", arrayOf(id))
 
     fun deleteForConversation(conversationId: Long) = db.execSQL("DELETE FROM messages WHERE conversation_id=?", arrayOf(conversationId))
 }
