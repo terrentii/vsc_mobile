@@ -83,7 +83,7 @@ class VaultTest {
             val st = ratchetInitBob(ByteArray(32), generateX25519Keypair())
             val id = v.receiveMessage(c, "привет".toByteArray(), st)
             val m = v.messages.get(id)!!
-            assertEquals("привет", m.body.decodeToString())
+            assertEquals("привет", m.body!!.decodeToString())
             assertEquals(listOf("in", "received", "text"), listOf(m.direction, m.status, m.kind))
             assertContentEquals(serializeState(st), serializeState(v.ratchet.load(c)!!))
         }

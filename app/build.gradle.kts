@@ -28,6 +28,7 @@ kotlin { jvmToolchain(17) }
 dependencies {
     implementation(project(":crypto"))
     implementation(project(":p2p"))
+    implementation(project(":central"))
     implementation("com.goterl:lazysodium-android:5.2.0@aar")
     implementation("net.java.dev.jna:jna:5.17.0@aar")
     implementation(platform("androidx.compose:compose-bom:2025.06.00"))

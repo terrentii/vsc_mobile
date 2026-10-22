@@ -23,3 +23,4 @@ Android-клиент МЫС (Kotlin + Compose). Обязан работать в
 - Эмулятор: `tools/emulator.sh` (headless, API 35); инструментальные тесты: `./gradlew :app:connectedDebugAndroidTest`
 - Векторы: `$DESKTOP_PYTHON tools/gen_vectors.py ../vsc_desktop/src > crypto/src/test/resources/vectors.json` (python с зависимостями vsc_desktop)
 - P2P + интероп с десктопом: `DESKTOP_PYTHON=… VSC_WEB_PYTHON=… ./gradlew :p2p:test` (без переменных интероп пропускается)
+- «Центр» против живого vsc_web: `VSC_WEB_PYTHON=… ./gradlew :central:test` (без переменной живые тесты пропускаются; на NixOS ещё `LD_LIBRARY_PATH=$NIX_LD_LIBRARY_PATH` для eventlet)
