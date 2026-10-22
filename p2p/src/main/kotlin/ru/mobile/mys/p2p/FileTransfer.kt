@@ -8,6 +8,8 @@ package ru.mobile.mys.p2p
 const val KIND_TEXT: Byte = 0x00
 const val KIND_FILE_META: Byte = 0x01
 const val KIND_FILE_CHUNK: Byte = 0x02
+/** Сигналинг WebRTC (JSON offer/answer/cand) — служебный, не сообщение. */
+const val KIND_SIGNAL: Byte = 0x03
 
 /** 64 КиБ: влезает и в лимит сообщения WebRTC (спека §2). Получатель берёт размер из META. */
 const val CHUNK_SIZE = 64 * 1024

@@ -28,7 +28,10 @@ sealed interface CentralEvent {
 /** Оркестратор «Центра» — порт mys_centralized/service.py на корутинах. */
 class CentralService(
     private val store: CentralStore,
-    private val http: OkHttpClient = OkHttpClient.Builder().pingInterval(20, TimeUnit.SECONDS).build(),
+    // медленному серверу (ответ soufos.ru бывает 18–30 с) — 60 с на соединение и ответ; ping держит /ws и NAT
+    private val http: OkHttpClient = OkHttpClient.Builder()
+        .connectTimeout(60, TimeUnit.SECONDS).readTimeout(60, TimeUnit.SECONDS)
+        .pingInterval(20, TimeUnit.SECONDS).build(),
     private val roomPollMs: Long = 20_000,
 ) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)

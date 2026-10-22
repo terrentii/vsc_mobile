@@ -4,6 +4,7 @@ import java.io.ByteArrayOutputStream
 import java.nio.ByteBuffer
 import java.security.MessageDigest
 import java.security.SecureRandom
+import java.util.concurrent.atomic.AtomicBoolean
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.cancelAndJoin
@@ -29,6 +30,8 @@ class Session internal constructor(
     private val store: SessionStore,
     private val onMessage: (Long) -> Unit,
     private val onDisconnect: () -> Unit,
+    private val onSignal: (String) -> Unit,
+    private val onDirectClosed: () -> Unit,
 ) {
     private class PendingFile {
         var meta: FileMeta? = null
@@ -39,14 +42,58 @@ class Session internal constructor(
 
     private val mutex = Mutex()
     private var recvJob: Job? = null
+    private var scope: CoroutineScope? = null
+
+    /** Прямой канал (WebRTC), если открыт: отправка идёт по нему, приём — с обоих. */
+    @Volatile private var direct: Transport? = null
+    private var directJob: Job? = null
+    @Volatile private var relayAlive = true
+    private val disconnected = AtomicBoolean(false)
     private val outbox = ArrayDeque<kotlin.Pair<Long, ByteArray>>()
     private val pendingFiles = HashMap<ByteBuffer, PendingFile>()
 
     /** Есть ли отправляющая цепочка (у RESPONDER — после первого входящего). */
     val canSend: Boolean get() = state.cks != null
 
+    val isDirect: Boolean get() = direct != null
+
     fun start(scope: CoroutineScope) {
+        this.scope = scope
         if (recvJob == null) recvJob = scope.launch { recvLoop() }
+    }
+
+    /** Подключить прямой канал (вызывать после [start]). */
+    fun attachDirect(t: Transport) {
+        val old = direct
+        direct = t
+        directJob = checkNotNull(scope) { "сессия не запущена" }.launch {
+            try {
+                while (true) handleFrame(t.recv())
+            } catch (e: TransportException) {
+                detachDirect(t)
+            }
+        }
+        if (old != null) scope?.launch { runCatching { old.close() } }
+    }
+
+    /** Прямой умер: сессия живёт на relay, а если и relay мёртв — разрыв. */
+    private suspend fun detachDirect(t: Transport) {
+        if (direct !== t) return
+        direct = null
+        runCatching { t.close() }
+        if (relayAlive) runCatching { onDirectClosed() } else disconnectOnce()
+    }
+
+    private fun disconnectOnce() {
+        if (disconnected.compareAndSet(false, true)) runCatching { onDisconnect() }
+    }
+
+    /**
+     * Сигналинг WebRTC внутри E2E — не персистится и не показывается. Идёт через
+     * relay: пир ещё не слушает прямой канал, пока не получит наш answer.
+     */
+    suspend fun sendSignal(json: String) = mutex.withLock {
+        if (canSend) sealSaveSend(byteArrayOf(KIND_SIGNAL) + json.toByteArray(), viaRelay = relayAlive)
     }
 
     suspend fun send(text: String) {
@@ -81,10 +128,19 @@ class Session internal constructor(
     suspend fun sendPrime() = mutex.withLock { if (canSend) sealSaveSend(ByteArray(0)) }
 
     /** Состояние сохраняется ДО отправки: упади процесс после send — ключ цепочки не переиспользуется. */
-    private suspend fun sealSaveSend(payload: ByteArray) {
+    private suspend fun sealSaveSend(payload: ByteArray, viaRelay: Boolean = false) {
         val sealed = seal(state, tk, payload)
         store.saveRatchet(state)
-        transport.send(encodeMessage(Msg.Data(sealed)))
+        val frame = encodeMessage(Msg.Data(sealed))
+        if (!viaRelay) direct?.let { d ->
+            try {
+                return d.send(frame)
+            } catch (e: TransportException) {
+                detachDirect(d) // откат на relay
+            }
+        }
+        if (!relayAlive) throw TransportException("нет живого канала к собеседнику")
+        transport.send(frame)
     }
 
     private suspend fun flushOutboxLocked() {
@@ -99,9 +155,10 @@ class Session internal constructor(
         try {
             while (true) handleFrame(transport.recv())
         } catch (e: TransportException) {
-            // Обрыв сам по себе (close() отменяет задачу и сюда не попадает) — пир пропал.
+            // Обрыв relay сам по себе (close() отменяет задачу и сюда не попадает).
+            relayAlive = false
             runCatching { transport.close() }
-            runCatching { onDisconnect() }
+            if (direct == null) disconnectOnce() // иначе живём на прямом
         }
     }
 
@@ -109,14 +166,17 @@ class Session internal constructor(
         val msg = try { decodeMessage(frame) } catch (e: TransportException) { return }
         if (msg !is Msg.Data) return
         var receivedId: Long? = null
+        var signal: String? = null
         mutex.withLock {
             val plaintext = try { open(state, tk, msg.sealed) } catch (e: Exception) { return } // ratchet не двинулся
-            val incoming = if (plaintext.isEmpty()) null else runCatching { dispatch(plaintext) }.getOrNull()
+            if (plaintext.isNotEmpty() && plaintext[0] == KIND_SIGNAL) signal = plaintext.copyOfRange(1, plaintext.size).decodeToString()
+            val incoming = if (plaintext.isEmpty() || signal != null) null else runCatching { dispatch(plaintext) }.getOrNull()
             if (incoming == null) store.saveRatchet(state) // prime / промежуточный кадр файла
             else receivedId = store.receive(incoming.body, state, incoming.kind, incoming.filename, incoming.mimeType)
             flushOutboxLocked()
         }
         receivedId?.let(onMessage)
+        signal?.let { runCatching { onSignal(it) } }
     }
 
     private fun dispatch(plaintext: ByteArray): Incoming? {
@@ -145,9 +205,12 @@ class Session internal constructor(
     }
 
     suspend fun close() {
+        directJob?.cancelAndJoin()
         recvJob?.cancelAndJoin()
         recvJob = null
         pendingFiles.clear()
+        direct?.let { runCatching { it.close() } }
+        direct = null
         transport.close()
     }
 }
@@ -160,7 +223,9 @@ fun openSession(
     seedState: RatchetState,
     onMessage: (Long) -> Unit = {},
     onDisconnect: () -> Unit = {},
+    onSignal: (String) -> Unit = {},
+    onDirectClosed: () -> Unit = {},
 ): Session {
     val state = store.loadRatchet() ?: seedState.also { store.saveRatchet(it) }
-    return Session(transport, state, deriveTransformKey(sk), store, onMessage, onDisconnect)
+    return Session(transport, state, deriveTransformKey(sk), store, onMessage, onDisconnect, onSignal, onDirectClosed)
 }
