@@ -37,6 +37,9 @@ dependencies {
     implementation("androidx.compose.foundation:foundation")
     implementation("androidx.compose.ui:ui")
     implementation("androidx.biometric:biometric:1.1.0")
+    // biometric 1.1.0 тянет fragment 1.2.5 (2020): его проверка «16 бит requestCode»
+    // роняла запрос разрешений через новый activity-compose. Явно — свежий fragment.
+    implementation("androidx.fragment:fragment-ktx:1.8.9")
     implementation("androidx.core:core-ktx:1.16.0")
     implementation("io.getstream:stream-webrtc-android:1.3.10")
     implementation("androidx.activity:activity-compose:1.10.1")
