@@ -117,4 +117,15 @@ class VaultTest {
             assertEquals("t", v.settings.get("central.token"))
         }
     }
+
+    @Test fun biometricWrapUnlocks() {
+        val bio = BiometricKey(dir, requireAuth = false)
+        create().use { v -> bio.seal(bio.encryptCipher(), v.key) }
+        assertTrue(bio.isEnabled())
+        val key = bio.open(bio.decryptCipher()!!)
+        Vault.openWithKey(dir, key).use { assertTrue(it.conversations.list().isEmpty()) }
+        bio.disable()
+        assertFalse(bio.isEnabled())
+        assertNull(bio.decryptCipher())
+    }
 }
