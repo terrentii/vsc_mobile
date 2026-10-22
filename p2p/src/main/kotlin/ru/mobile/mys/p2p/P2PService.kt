@@ -8,8 +8,10 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.channels.BufferOverflow
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.SharedFlow
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
 import okhttp3.OkHttpClient
 import ru.mobile.mys.crypto.Ristretto
@@ -28,6 +30,8 @@ sealed interface P2PEvent {
     class Message(val conversationId: Long, val messageId: Long) : P2PEvent
     class State(val conversationId: Long, val connected: Boolean) : P2PEvent
     class Error(val conversationId: Long?, val error: Throwable) : P2PEvent
+    /** Путь канала сменился: прямой (WebRTC) или через сервер. */
+    class Path(val conversationId: Long, val direct: Boolean) : P2PEvent
 }
 
 /**
@@ -42,10 +46,13 @@ class P2PService(
     private val connectTimeoutMs: Long = 300_000,
     // два обмена кадрами через relay; у перегруженного сервера кадр идёт ~12 с
     private val handshakeTimeoutMs: Long = 120_000,
+    /** Фабрика прямого канала; null — только relay. */
+    private val directLinks: (() -> DirectLink)? = null,
 ) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val sessions = ConcurrentHashMap<Long, Session>()
     private val roles = ConcurrentHashMap<Long, Role>()
+    private val links = ConcurrentHashMap<Long, DirectLink>()
     private val _events = MutableSharedFlow<P2PEvent>(extraBufferCapacity = 256, onBufferOverflow = BufferOverflow.DROP_OLDEST)
 
     /** Сообщения уже в хранилище — события лишь будят UI. */
@@ -54,6 +61,8 @@ class P2PService(
     fun hasSession(conversationId: Long) = sessions.containsKey(conversationId)
 
     fun roleOf(conversationId: Long): Role? = roles[conversationId]
+
+    fun isDirect(conversationId: Long) = sessions[conversationId]?.isDirect == true
 
     /** Беседа по фразе без сети — сразу показать окно ожидания пира. */
     fun resolveConversation(phrase: String): Long = store.conversationFor(deriveRoomParams(phrase).first)
@@ -82,6 +91,7 @@ class P2PService(
 
     suspend fun stopSession(conversationId: Long) {
         roles.remove(conversationId)
+        links.remove(conversationId)?.let { runCatching { it.close() } }
         sessions.remove(conversationId)?.let {
             it.close()
             _events.tryEmit(P2PEvent.State(conversationId, false))
@@ -103,13 +113,17 @@ class P2PService(
             val transport = RelayTransport(rv.ws)
             val result = withTimeoutOrNull(handshakeTimeoutMs) { handshake(transport, prs, rv.role, ristretto) }
                 ?: throw PakeException("собеседник не завершил хендшейк")
+            val link = directLinks?.invoke()
             val session = openSession(
                 store.session(id), transport, result.sk, result.ratchetState,
                 onMessage = { mid -> _events.tryEmit(P2PEvent.Message(id, mid)) },
                 onDisconnect = { onDisconnect(id) },
+                onSignal = { json -> link?.onSignal(json) },
+                onDirectClosed = { _events.tryEmit(P2PEvent.Path(id, false)) },
             )
             sessions[id] = session
             roles[id] = rv.role
+            if (link != null) startDirect(id, session, rv.role, link)
             session.start(scope)
             if (rv.role == Role.INITIATOR) runCatching { session.sendPrime() } // best-effort
             _events.tryEmit(P2PEvent.State(id, true))
@@ -120,7 +134,35 @@ class P2PService(
         }
     }
 
+    /**
+     * Прямой канал поверх живой сессии. Обрыв — откат на relay (сессия жива);
+     * INITIATOR повторяет offer через 10 с, затем с backoff до 2 мин.
+     */
+    private fun startDirect(id: Long, session: Session, role: Role, link: DirectLink) {
+        links[id] = link
+        var backoff = 10_000L
+        link.start(
+            initiator = role == Role.INITIATOR,
+            signal = { json -> scope.launch { runCatching { session.sendSignal(json) } } },
+            opened = { t ->
+                if (sessions[id] === session) {
+                    session.attachDirect(t)
+                    backoff = 10_000L
+                    _events.tryEmit(P2PEvent.Path(id, true))
+                }
+            },
+            closed = {
+                if (role == Role.INITIATOR) scope.launch {
+                    delay(backoff)
+                    backoff = minOf(backoff * 2, 120_000L)
+                    if (sessions[id] === session) link.restart()
+                }
+            },
+        )
+    }
+
     private fun onDisconnect(id: Long) {
+        links.remove(id)?.let { runCatching { it.close() } }
         if (sessions.remove(id) != null) {
             roles.remove(id)
             _events.tryEmit(P2PEvent.State(id, false))
