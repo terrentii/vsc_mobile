@@ -6,13 +6,14 @@ plugins {
 
 android {
     namespace = "ru.mobile.mys"
-    compileSdk = 35
+    compileSdk = 36
     defaultConfig {
         applicationId = "ru.mobile.mys"
         minSdk = 26
         targetSdk = 35
         versionCode = 1
         versionName = "0.1.0"
+        testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
@@ -31,4 +32,10 @@ dependencies {
     implementation(platform("androidx.compose:compose-bom:2025.06.00"))
     implementation("androidx.compose.material3:material3")
     implementation("androidx.activity:activity-compose:1.10.1")
+    implementation("net.zetetic:sqlcipher-android:4.19.1")
+    implementation("androidx.sqlite:sqlite:2.7.0")
+    testImplementation(kotlin("test-junit"))
+    androidTestImplementation(kotlin("test-junit"))
+    androidTestImplementation("androidx.test:runner:1.6.2")
+    androidTestImplementation("androidx.test.ext:junit:1.2.1")
 }

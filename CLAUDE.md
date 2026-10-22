@@ -12,10 +12,13 @@ Android-клиент МЫС (Kotlin + Compose). Обязан работать в
 - Модуль `:crypto` — чистый Kotlin/JVM: не знает о сети, хранилище и Android.
 - Любое изменение формата байтов сверяется с десктопом через тест-векторы:
   `tools/gen_vectors.py` → `crypto/src/test/resources/vectors.json`.
+- SQLCipher `rawQuery(String, Object...)` — Java varargs: аргументы передавать через spread (`*args`), иначе массив уйдёт одним параметром.
 - Адрес сервера не хардкодить (домен сменится) — только через настройку.
 
 ## Команды (внутри `nix develop`)
 
 - Тесты крипто: `./gradlew :crypto:test`
 - APK: `./gradlew :app:assembleDebug`
+- JVM-тесты приложения: `./gradlew :app:testDebugUnitTest`
+- Эмулятор: `tools/emulator.sh` (headless, API 35); инструментальные тесты: `./gradlew :app:connectedDebugAndroidTest`
 - Векторы: `../vsc_desktop/.venv/bin/python tools/gen_vectors.py ../vsc_desktop/src > crypto/src/test/resources/vectors.json`

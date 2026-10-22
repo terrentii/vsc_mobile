@@ -10,9 +10,12 @@
         config = { allowUnfree = true; android_sdk.accept_license = true; };
       };
       android = pkgs.androidenv.composeAndroidPackages {
-        platformVersions = [ "35" ];
+        platformVersions = [ "35" "36" ];
         buildToolsVersions = [ "35.0.0" ];
-        includeEmulator = false;
+        includeEmulator = true;
+        includeSystemImages = true;
+        systemImageTypes = [ "google_apis" ];
+        abiVersions = [ "x86_64" ];
         includeNDK = false;
       };
       sdk = "${android.androidsdk}/libexec/android-sdk";
