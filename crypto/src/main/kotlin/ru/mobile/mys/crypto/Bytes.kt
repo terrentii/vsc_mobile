@@ -13,7 +13,7 @@ internal fun ByteArray.u32be(off: Int): Int =
         (this[off + 3].toInt() and 0xff)
 
 /** Лексикографическое сравнение как у Python `bytes` (Arrays.compareUnsigned — только API 33+). */
-internal fun compareUnsigned(a: ByteArray, b: ByteArray): Int {
+fun compareUnsigned(a: ByteArray, b: ByteArray): Int {
     for (i in 0 until minOf(a.size, b.size)) {
         val d = (a[i].toInt() and 0xff) - (b[i].toInt() and 0xff)
         if (d != 0) return d
