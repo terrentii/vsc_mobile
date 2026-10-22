@@ -13,6 +13,7 @@ Android-клиент МЫС (Kotlin + Compose). Обязан работать в
 - Любое изменение формата байтов сверяется с десктопом через тест-векторы:
   `tools/gen_vectors.py` → `crypto/src/test/resources/vectors.json`.
 - SQLCipher `rawQuery(String, Object...)` — Java varargs: аргументы передавать через spread (`*args`), иначе массив уйдёт одним параметром.
+- Сигналинг WebRTC (`KIND_SIGNAL`) — всегда через relay: пир не слушает прямой канал, пока не получит answer.
 - Диалоги — только оверлеем в окне Activity (`ui/Theme.kt: Overlay`): системный `Dialog` — отдельное окно без FLAG_SECURE.
 - Адрес сервера не хардкодить (домен сменится) — только через настройку.
 
@@ -27,3 +28,4 @@ Android-клиент МЫС (Kotlin + Compose). Обязан работать в
 - «Центр» против живого vsc_web: `VSC_WEB_PYTHON=… ./gradlew :central:test` (без переменной живые тесты пропускаются; на NixOS ещё `LD_LIBRARY_PATH=$NIX_LD_LIBRARY_PATH` для eventlet)
 - Кадры экранов (adb screencap чёрный из-за FLAG_SECURE): `./gradlew :app:connectedDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.class=ru.mobile.mys.ScreenshotTest -Pandroid.testInstrumentationRunnerArguments.screenshots=1 -Pandroid.injected.androidTest.leaveApksInstalledAfterRun=true`, затем `adb pull /sdcard/Android/media/ru.mobile.mys/`
 - Живой P2P телефон ↔ десктоп через боевой сервер: на хосте `$DESKTOP_PYTHON tools/desktop_peer.py ../vsc_desktop/src wss://soufos.ru/p2p "<фраза>" <tmp>`, одновременно `adb shell am instrument -w -e class ru.mobile.mys.LiveSoufosP2PTest -e soufosPhrase "<фраза>" ru.mobile.mys.test/androidx.test.runner.AndroidJUnitRunner` (после `installDebug installDebugAndroidTest`)
+- Прямой канал WebRTC телефон ↔ десктоп (aiortc): `vsc_web` на хосте (`PORT=… python app.py`), эхо-пир `MYS_WEBRTC=1 $DESKTOP_PYTHON tools/desktop_peer.py ../vsc_desktop/src ws://127.0.0.1:<port>/p2p "<фраза>" <tmp>`, на эмуляторе тот же `LiveSoufosP2PTest` с `-e rendezvous ws://10.0.2.2:<port>/p2p -e expectDirect 1`
