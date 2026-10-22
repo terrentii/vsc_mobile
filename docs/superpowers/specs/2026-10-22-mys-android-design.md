@@ -19,6 +19,8 @@
 | Фон | foreground service, выключается в настройках |
 | Стиль | дизайн-система десктопа 1:1 (токены `mys_ui/theme.py`, шрифты, брутализм) |
 | Платформы | только Android; minSdk 26, targetSdk 35 |
+| Пакет | `ru.mobile.mys` |
+| Адрес сервера | настройка (дефолт `soufos.ru`), из неё выводятся `https://`, `wss://…/ws`, `wss://…/p2p`, `stun:…:3478` — домен планируется сменить |
 
 Вне объёма v1: групповые P2P-чаты, офлайн-доставка в P2P, звонки, iOS,
 анонимный вход в «Центр», CI.
@@ -29,7 +31,7 @@
 сеть не знает деталей шифрования).
 
 ```
-ru.soufos.mys/
+ru.mobile.mys/
   crypto/   primitives, transform, ratchet, envelope, cpace     — чистый Kotlin, JVM-тесты
   storage/  vault (SQLCipher), репозитории, unlock, биометрия
   p2p/      protocol, rendezvous, transport (relay|webrtc), handshake, session,
