@@ -12,7 +12,10 @@
       android = pkgs.androidenv.composeAndroidPackages {
         platformVersions = [ "35" ];
         buildToolsVersions = [ "35.0.0" ];
-        includeEmulator = false;
+        includeEmulator = true;
+        includeSystemImages = true;
+        systemImageTypes = [ "google_apis" ];
+        abiVersions = [ "x86_64" ];
         includeNDK = false;
       };
       sdk = "${android.androidsdk}/libexec/android-sdk";
