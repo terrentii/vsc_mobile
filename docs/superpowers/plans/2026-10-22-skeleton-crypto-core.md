@@ -6,7 +6,7 @@
 
 **Architecture:** Два Gradle-модуля: `:crypto` — чистый Kotlin/JVM (Bouncy Castle + ristretto255 из libsodium через интерфейс lazysodium), тестируется на JVM без Android SDK; `:app` — Android-приложение, подключает `:crypto` и `lazysodium-android`. Совместимость доказывается тест-векторами, которые генерирует эталонный Python-код десктопа.
 
-**Tech Stack:** Nix flake (JDK 17, Gradle, Android SDK 35, libsodium), Gradle 8.14 + AGP 8.11.1, Kotlin 2.1.21, Bouncy Castle 1.81, lazysodium 5.2.0, JUnit 4 (`kotlin-test`), org.json (только тесты).
+**Tech Stack:** Nix flake (JDK 17, Gradle, Android SDK 35, libsodium), Gradle 8.14 + AGP 8.11.1, Kotlin 2.1.21, Bouncy Castle 1.81, lazysodium 5.2.0 (android) / 5.1.4 (JVM-тесты: 5.2.0 требует JVM 21), JUnit 4 (`kotlin-test`), org.json (только тесты).
 
 Спека: `docs/superpowers/specs/2026-10-22-mys-android-design.md`.
 
@@ -160,8 +160,8 @@ dependencies {
     implementation("org.bouncycastle:bcprov-jdk18on:1.81")
     // Только API: на Android реализацию даёт lazysodium-android (тот же пакет
     // com.goterl.lazysodium), в тестах — lazysodium-java с нативами под JVM.
-    compileOnly("com.goterl:lazysodium-java:5.2.0")
-    testImplementation("com.goterl:lazysodium-java:5.2.0")
+    compileOnly("com.goterl:lazysodium-java:5.1.4")
+    testImplementation("com.goterl:lazysodium-java:5.1.4")
     testImplementation("net.java.dev.jna:jna:5.17.0")
     testImplementation("org.json:json:20250517")
     testImplementation(kotlin("test"))
@@ -221,6 +221,7 @@ android {
         targetCompatibility = JavaVersion.VERSION_17
     }
     buildFeatures { compose = true }
+    packaging { resources.excludes += "META-INF/versions/9/OSGI-INF/MANIFEST.MF" }
 }
 
 kotlin { jvmToolchain(17) }
