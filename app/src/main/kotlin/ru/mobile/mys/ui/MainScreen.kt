@@ -52,16 +52,11 @@ fun MainScreen(mode: String, onMode: (String) -> Unit, onOpen: (Long) -> Unit, o
     Box(Modifier.fillMaxSize()) {
         Column(Modifier.fillMaxSize()) {
             // Шапка: МЫС, вкладки режима, настройки, замок
-            Row(
-                Modifier.fillMaxWidth().background(c.surface2).padding(12.dp),
-                verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                T("МЫС", size = 24, bold = true, upper = true)
-                Spacer(Modifier.weight(1f))
+            TopBar("МЫС", big = true) {
                 BrutalButton("⚙", small = true, onClick = onSettings)
                 BrutalButton("Замок", small = true, variant = Variant.Danger) { AppGraph.lock() }
             }
-            Row(Modifier.fillMaxWidth().padding(12.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Row(Modifier.fillMaxWidth().padding(start = 16.dp, end = 16.dp, top = 16.dp, bottom = 4.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 BrutalButton("P2P", Modifier.weight(1f), if (p2p) Variant.Primary else Variant.Default) { onMode(DECENTRALIZED) }
                 BrutalButton("Центр", Modifier.weight(1f), if (!p2p) Variant.Primary else Variant.Default) { onMode(CENTRALIZED) }
             }
@@ -69,15 +64,15 @@ fun MainScreen(mode: String, onMode: (String) -> Unit, onOpen: (Long) -> Unit, o
                 LoginForm()
                 return@Column
             }
-            Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)) {
-                T(if (p2p) "Каналы" else "Комнаты", size = 22, bold = true, upper = true)
+            Row(Modifier.fillMaxWidth().padding(start = 16.dp, end = 16.dp, top = 16.dp, bottom = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                T(if (p2p) "Каналы" else "Комнаты", size = 15, color = c.text3, bold = true, upper = true)
                 Spacer(Modifier.weight(1f))
-                T(convs.size.toString(), size = 22, color = c.text3)
+                T(convs.size.toString(), size = 15, color = c.text3, mono = true)
             }
             LazyColumn(Modifier.weight(1f).fillMaxWidth()) {
                 items(convs, key = { it.id }) { conv ->
                     Row(
-                        Modifier.fillMaxWidth()
+                        Modifier.animateItem().fillMaxWidth()
                             .combinedClickable(onClick = { onOpen(conv.id) }, onLongClick = { menuFor = conv })
                             .padding(horizontal = 16.dp, vertical = 14.dp),
                         verticalAlignment = Alignment.CenterVertically,
@@ -87,12 +82,13 @@ fun MainScreen(mode: String, onMode: (String) -> Unit, onOpen: (Long) -> Unit, o
                             Box(Modifier.size(10.dp).background(if (on) c.success else c.text3))
                             Spacer(Modifier.size(12.dp))
                         }
-                        T(conv.title ?: if (p2p) "Канал ${conv.id}" else "Комната ${conv.id}", size = 19)
+                        T(conv.title ?: if (p2p) "Канал ${conv.id}" else "Комната ${conv.id}", Modifier.weight(1f), size = 19, maxLines = 1)
+                        T("→", size = 17, color = c.text3)
                     }
                     Box(Modifier.fillMaxWidth().padding(horizontal = 16.dp).size(1.dp).background(c.border2))
                 }
             }
-            Column(Modifier.fillMaxWidth().padding(12.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 BrutalButton(if (p2p) "+ Новый канал" else "+ Новая комната", Modifier.fillMaxWidth(), Variant.Ink) { prompt = Prompt.New }
                 if (!p2p) BrutalButton("Войти по коду", Modifier.fillMaxWidth()) { prompt = Prompt.Join }
             }

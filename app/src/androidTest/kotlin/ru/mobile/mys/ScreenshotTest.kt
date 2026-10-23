@@ -69,6 +69,8 @@ class ScreenshotTest {
         compose.onNodeWithText("Алиса").performClick()
         waitText("Это канал")
         shot("3-chat")
+        compose.onNodeWithTag("message").performTextInput("Длинное сообщение,\nчтобы проверить,\nкак кнопки держат строку")
+        shot("3b-chat-typing")
         compose.activity.runOnUiThread { compose.activity.onBackPressedDispatcher.onBackPressed() }
         waitText("КАНАЛЫ")
         compose.onNodeWithText("ЦЕНТР").performClick()

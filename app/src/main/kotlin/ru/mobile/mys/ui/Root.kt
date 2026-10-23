@@ -1,5 +1,16 @@
 package ru.mobile.mys.ui
 
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.Crossfade
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.animation.slideOutVertically
+import androidx.compose.animation.togetherWith
 import android.Manifest
 import android.os.Build
 import androidx.activity.compose.BackHandler
@@ -36,7 +47,7 @@ private sealed interface Screen {
 @Composable
 fun Root() {
     Box(Modifier.fillMaxSize().background(colors.bg).systemBarsPadding().imePadding()) {
-        if (AppGraph.vault == null) UnlockScreen() else Unlocked()
+        Crossfade(AppGraph.vault == null, label = "lock") { locked -> if (locked) UnlockScreen() else Unlocked() }
         ErrorBanner(Modifier.align(Alignment.BottomCenter))
     }
 }
@@ -48,11 +59,17 @@ private fun Unlocked() {
     BackHandler(screen != Screen.Main) { screen = Screen.Main }
     val notify = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) {}
     LaunchedEffect(Unit) { if (Build.VERSION.SDK_INT >= 33) notify.launch(Manifest.permission.POST_NOTIFICATIONS) }
-    when (val s = screen) {
+    // Вглубь (чат, настройки) — въезд справа, назад — слева; старый экран слегка сдвигается и гаснет
+    AnimatedContent(screen, transitionSpec = {
+        val forward = targetState != Screen.Main
+        val dir = if (forward) 1 else -1
+        (slideInHorizontally(tween(260)) { it * dir / 3 } + fadeIn(tween(260))) togetherWith
+            (slideOutHorizontally(tween(200)) { -it * dir / 6 } + fadeOut(tween(160)))
+    }, label = "screen") { s -> when (s) {
         Screen.Main -> MainScreen(mode, onMode = { mode = it }, onOpen = { screen = Screen.Chat(it, mode) }, onSettings = { screen = Screen.Settings })
         is Screen.Chat -> ChatScreen(s.conversationId, s.mode, onBack = { screen = Screen.Main })
         Screen.Settings -> SettingsScreen(onBack = { screen = Screen.Main })
-    }
+    } }
 }
 
 /** Последняя ошибка на 4 с внизу экрана. */
@@ -61,9 +78,11 @@ private fun ErrorBanner(modifier: Modifier) {
     var text by remember { mutableStateOf<String?>(null) }
     LaunchedEffect(Unit) { AppGraph.errors.collect { text = it } }
     LaunchedEffect(text) { if (text != null) { delay(4_000); text = null } }
-    text?.let {
-        Box(modifier.fillMaxWidth().padding(16.dp).blockShadow(colors.line).background(colors.surface).border(2.dp, colors.warn).padding(14.dp)) {
-            T(it, color = colors.warn)
+    var last by remember { mutableStateOf("") }
+    text?.let { last = it }
+    AnimatedVisibility(text != null, modifier, enter = slideInVertically { it } + fadeIn(), exit = slideOutVertically { it } + fadeOut()) {
+        Box(Modifier.fillMaxWidth().padding(16.dp).blockShadow(colors.warn).background(colors.surface).border(2.dp, colors.warn).padding(14.dp)) {
+            T(last, color = colors.warn)
         }
     }
 }

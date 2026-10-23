@@ -6,6 +6,17 @@ import android.provider.OpenableColumns
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.RowScope
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -14,7 +25,6 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
@@ -106,33 +116,44 @@ fun ChatScreen(conversationId: Long, mode: String, onBack: () -> Unit) {
 
     Box(Modifier.fillMaxSize()) {
         Column(Modifier.fillMaxSize()) {
-            Row(Modifier.fillMaxWidth().background(c.surface2).padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
-                BrutalButton("←", small = true, onClick = onBack)
-                Column(Modifier.padding(start = 12.dp).weight(1f)) {
-                    T(title.ifEmpty { if (p2p) "Канал" else "Комната" }, size = 22, bold = true)
-                    if (p2p) PeerStatus(conversationId) else {
-                        val code = AppGraph.central?.roomCode(conversationId)
-                        SelectionContainer { T(if (code != null) "Код $code" else "Центр", size = 14, color = c.text2, upper = true) }
+            TopBar(title.ifEmpty { if (p2p) "Канал" else "Комната" }, onBack, subtitle = {
+                if (p2p) PeerStatus(conversationId) else {
+                    val code = AppGraph.central?.roomCode(conversationId)
+                    SelectionContainer { T(if (code != null) "Код $code" else "Центр", size = 13, color = c.text2, upper = true) }
+                }
+            })
+            AnimatedVisibility(p2p && AppGraph.online[conversationId] != true, enter = expandVertically() + fadeIn(), exit = shrinkVertically() + fadeOut()) {
+                ConnectBar(conversationId)
+            }
+
+            Blueprint(Modifier.weight(1f).fillMaxWidth()) {
+                LazyColumn(
+                    Modifier.fillMaxSize(), state = list,
+                    contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp),
+                ) {
+                    items(messages, key = { it.id }) { m ->
+                        MessageRow(m, p2p, title, Modifier.combinedClickable(onClick = {}, onLongClick = { menuFor = m }), Modifier.animateItem())
                     }
                 }
             }
-            if (p2p && AppGraph.online[conversationId] != true) ConnectBar(conversationId)
 
-            LazyColumn(Modifier.weight(1f).fillMaxWidth().padding(horizontal = 12.dp), state = list, verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                items(messages, key = { it.id }) { m ->
-                    MessageRow(m, p2p, title, Modifier.combinedClickable(onClick = {}, onLongClick = { menuFor = m }))
-                }
-            }
-
-            reply?.let { r ->
-                Row(Modifier.fillMaxWidth().background(c.accentSoft).padding(10.dp), verticalAlignment = Alignment.CenterVertically) {
-                    T("↩ ${r.sender}: ${r.snippet}", Modifier.weight(1f), size = 14, color = c.text2)
+            AnimatedVisibility(reply != null, enter = expandVertically() + fadeIn(), exit = shrinkVertically() + fadeOut()) {
+                var last by remember { mutableStateOf(reply) }
+                reply?.let { last = it }
+                last?.let { r -> Bar {
+                    T("↩ ${r.sender}: ${r.snippet}", Modifier.weight(1f), size = 14, color = c.text2, maxLines = 1)
                     BrutalButton("✕", small = true) { reply = null }
-                }
+                } }
             }
-            Row(Modifier.fillMaxWidth().padding(12.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                BrutalButton("Файл", small = true) { pickLauncher.launch(arrayOf("*/*")) }
-                BrutalField(text, { text = it }, "Сообщение", Modifier.weight(1f).heightIn(max = 140.dp), singleLine = false, tag = "message")
+            // Строка ввода: всё высотой CONTROL и по нижнему краю — при многострочном тексте кнопки остаются внизу
+            Row(
+                Modifier.fillMaxWidth().background(c.surface2)
+                    .drawBehind { drawRect(c.line, size = Size(size.width, 2.dp.toPx())) }
+                    .padding(start = 16.dp, end = 12.dp, top = 12.dp, bottom = 8.dp),
+                verticalAlignment = Alignment.Bottom, horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                BrutalButton("+", Modifier.semantics { contentDescription = "Прикрепить файл" }) { pickLauncher.launch(arrayOf("*/*")) }
+                BrutalField(text, { text = it }, "Сообщение", Modifier.weight(1f).heightIn(max = 160.dp), singleLine = false, tag = "message")
                 BrutalButton("→", variant = Variant.Primary, enabled = text.isNotBlank()) { send() }
             }
         }
@@ -175,8 +196,15 @@ private fun PeerStatus(conversationId: Long) {
     val c = colors
     val on = AppGraph.online[conversationId] == true
     val path = if (AppGraph.direct[conversationId] == true) "напрямую" else "через сервер"
-    T(if (on) "● В сети · $path" else "● Не в сети", size = 14, color = if (on) c.success else c.text3, upper = true)
+    T(if (on) "● В сети · $path" else "● Не в сети", size = 13, color = if (on) c.success else c.text3, upper = true)
 }
+
+/** Полоса-уведомление под шапкой: текст слева, кнопка справа. */
+@Composable
+private fun Bar(content: @Composable RowScope.() -> Unit) = Row(
+    Modifier.fillMaxWidth().background(colors.accentSoft).heightIn(min = 56.dp).padding(horizontal = 16.dp, vertical = 8.dp),
+    verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp), content = content,
+)
 
 /** Нет канала: «Выйти на связь» или окно ожидания пира с обратным отсчётом. */
 @Composable
@@ -185,7 +213,7 @@ private fun ConnectBar(conversationId: Long) {
     val deadline = AppGraph.waiting[conversationId]
     var now by remember { mutableLongStateOf(System.currentTimeMillis()) }
     LaunchedEffect(deadline) { while (deadline != null) { now = System.currentTimeMillis(); delay(1_000) } }
-    Row(Modifier.fillMaxWidth().background(c.accentSoft).padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
+    Bar {
         if (deadline != null) {
             val left = ((deadline - now) / 1000).coerceAtLeast(0)
             T("Ждём собеседника ${left / 60}:${"%02d".format(left % 60)}", Modifier.weight(1f), upper = true)
@@ -198,23 +226,22 @@ private fun ConnectBar(conversationId: Long) {
 }
 
 @Composable
-private fun MessageRow(m: Message, p2p: Boolean, peerName: String, modifier: Modifier) {
+private fun MessageRow(m: Message, p2p: Boolean, peerName: String, modifier: Modifier, rowModifier: Modifier) {
     val c = colors
     val out = m.direction == "out"
-    Box(Modifier.fillMaxWidth(), contentAlignment = if (out) Alignment.CenterEnd else Alignment.CenterStart) {
+    Box(rowModifier.fillMaxWidth(), contentAlignment = if (out) Alignment.CenterEnd else Alignment.CenterStart) {
         Column(
-            modifier.widthIn(max = 320.dp).blockShadow(if (out) c.accent else c.line)
+            modifier.widthIn(max = 300.dp).blockShadow(if (out) c.accent else c.line)
                 .background(if (out) c.accentSoft else c.bubbleThem).border(2.dp, c.line).padding(10.dp),
             verticalArrangement = Arrangement.spacedBy(4.dp),
         ) {
             // P2P: название канала, если его переименовали, иначе «Собеседник»
             val author = if (out) "Вы" else if (p2p) peerName.ifEmpty { "Собеседник" } else m.sender ?: "?"
             val time = (m.sentAt ?: m.receivedAt)?.let { TIME.format(Instant.ofEpochMilli(it)) } ?: ""
-            val status = when (m.status) { "pending" -> " · …"; "failed" -> " · не отправлено"; else -> "" }
-            Row {
-                T(author, size = 13, color = if (out) c.accent else c.text2, bold = true, upper = true)
-                Spacer(Modifier.weight(1f, fill = false).padding(start = 8.dp))
-                T("  $time$status", size = 13, color = if (m.status == "failed") c.warn else c.text3)
+            val status = when (m.status) { "pending" -> " · отправка"; "failed" -> " · не отправлено"; else -> "" }
+            Row(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
+                T(author, Modifier.weight(1f, fill = false), size = 12, color = if (out) c.accent else c.text2, bold = true, upper = true, maxLines = 1)
+                T("$time$status", size = 12, color = if (m.status == "failed") c.warn else c.text3, mono = true)
             }
             m.replyAuthor?.let { T("↩ $it: ${m.replySnippet ?: ""}", size = 13, color = c.text2) }
             when (m.kind) {

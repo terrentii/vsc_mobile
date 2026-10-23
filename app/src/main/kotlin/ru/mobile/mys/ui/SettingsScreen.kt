@@ -7,6 +7,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.Composable
@@ -46,10 +47,7 @@ fun SettingsScreen(onBack: () -> Unit) {
     AppGraph.tick.intValue // перечитывать сессию «Центра» после выхода
 
     Column(Modifier.fillMaxSize()) {
-        Row(Modifier.fillMaxWidth().background(c.surface2).padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
-            BrutalButton("←", small = true, onClick = onBack)
-            T("Настройки", Modifier.padding(start = 12.dp), size = 22, bold = true, upper = true)
-        }
+        TopBar("Настройки", onBack)
         Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             note?.let { T(it, color = c.accent) }
 
@@ -64,7 +62,7 @@ fun SettingsScreen(onBack: () -> Unit) {
             }
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                 T("Автоблокировка", Modifier.weight(1f))
-                BrutalButton(if (autolock == 0) "Никогда" else "$autolock мин", small = true) {
+                BrutalButton(if (autolock == 0) "Никогда" else "$autolock мин", Modifier.widthIn(min = TOGGLE_W), small = true) {
                     autolock = AUTOLOCK_STEPS[(AUTOLOCK_STEPS.indexOf(autolock) + 1) % AUTOLOCK_STEPS.size]
                     AppGraph.setSetting(AppGraph.K_AUTOLOCK, autolock.toString())
                 }
