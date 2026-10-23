@@ -12,6 +12,7 @@ import kotlin.test.assertFailsWith
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
 import org.junit.AfterClass
@@ -66,6 +67,41 @@ class LiveServerTest {
 
     private suspend fun service(store: MemoryCentralStore = MemoryCentralStore(), name: String = user()) =
         CentralService(store, roomPollMs = 0).also { it.login(url, name, "pw-$name", register = true) } to store
+
+    @Test fun dialogInviteAcceptTypingReadTitleLeave() = live {
+        val nameB = user()
+        val (a, sa) = service()
+        val (b, sb) = service(name = nameB)
+        eventually { a.liveConnected && b.liveConnected }
+        val convA = a.invite(nameB)
+        assertTrue(a.meta(convA)!!.pendingInvite)
+        // приглашение долетает живьём (room_updated по /ws)
+        eventually(20_000) { b.metas.value.values.any { it.role == "invited" } }
+        val convB = b.metas.value.entries.first { it.value.role == "invited" }.key
+        assertTrue(b.roomOp(convB) { dialogAction(it, "accept") }!!.isDialog)
+        eventually(20_000) { a.meta(convA)?.isDialog == true }
+
+        val typed = java.util.concurrent.atomic.AtomicBoolean(false)
+        val watch = kotlinx.coroutines.GlobalScope.launch {
+            a.events.collect { if (it is CentralEvent.Room && it.kind == "typing" && it.conversationId == convA) typed.set(true) }
+        }
+        b.typing(convB)
+        eventually(20_000) { typed.get() }
+        watch.cancel()
+
+        b.send(convB, "привет")
+        eventually(20_000) { sa.messages(convA).any { it.wireSeq != null } }
+        val wire = sa.messages(convA).mapNotNull { it.wireSeq }.max()
+        a.markRead(convA, wire)
+        eventually(20_000) { b.meta(convB)?.peerRead == wire }
+
+        assertEquals("Друг", a.roomOp(convA) { setTitle(it, "Друг") }!!.title)
+        assertEquals(nameB, a.meta(convA)!!.peer)
+        assertTrue(b.meta(convB)!!.title != "Друг")
+        assertEquals(null, b.roomOp(convB) { leaveRoom(it) })
+        assertTrue(sb.conversations().none { it == convB })
+        eventually(20_000) { a.meta(convA)?.isDialog == false }
+    }
 
     @Test fun createJoinSendLiveEditDelete() = live {
         val (a, sa) = service()

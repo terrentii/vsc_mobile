@@ -66,6 +66,10 @@ object AppGraph {
     val waiting = mutableStateMapOf<Long, Long>()
     /** P2P: канал идёт напрямую (WebRTC), а не через сервер. */
     val direct = mutableStateMapOf<Long, Boolean>()
+    /** «Центр», диалог: собеседник печатает — до этого момента (epoch ms). */
+    val typing = mutableStateMapOf<Long, Long>()
+    /** Хранилище только что создано — предложить вход по отпечатку (один раз). */
+    var offerBiometric by mutableStateOf(false)
 
     /** Тексты ошибок для баннера. */
     val errors = MutableSharedFlow<String>(extraBufferCapacity = 16, onBufferOverflow = BufferOverflow.DROP_OLDEST)
@@ -94,6 +98,8 @@ object AppGraph {
     private fun prefs() = app.getSharedPreferences("ui", Context.MODE_PRIVATE)
 
     fun changed() { tick.intValue++ }
+
+    fun appContext(): Context = app
 
     fun setting(key: String, default: String): String = vault?.settings?.get(key) ?: default
 
@@ -155,6 +161,7 @@ object AppGraph {
             scope.launch {
                 c.events.collect { e ->
                     if (e is CentralEvent.Error) errors.tryEmit(centralMessage(e.error))
+                    if (e is CentralEvent.Room && e.kind == "typing") typing[e.conversationId] = System.currentTimeMillis() + 5_000
                     if (e is CentralEvent.Message && e.messageId != 0L && v.messages.get(e.messageId)?.direction == "in") notifyIfBackground()
                     changed()
                 }
@@ -257,6 +264,16 @@ object AppGraph {
             "username_taken" -> "Это имя уже занято"
             "invalid_username" -> "Недопустимое имя пользователя"
             "weak_password" -> "Слишком простой пароль"
+            "dialog" -> "В диалоге состав и открытость менять нельзя"
+            "not_dialog" -> "Доступно только в диалоге"
+            "not_eligible" -> "Диалог возможен только в комнате ровно на двух зарегистрированных"
+            "no_proposal" -> "Предложение уже неактуально"
+            "user_not_found" -> "Пользователь не найден"
+            "self" -> "Нельзя выбрать самого себя"
+            "creator" -> "Создатель не может покинуть комнату"
+            "bad_image" -> "Нужна картинка PNG, JPEG или WebP"
+            "too_large" -> "Картинка больше 5 МБ"
+            "pending_invite" -> "Писать можно после принятия приглашения"
             else -> "Ошибка сервера: ${e.code}"
         }
         else -> e.message ?: e.javaClass.simpleName

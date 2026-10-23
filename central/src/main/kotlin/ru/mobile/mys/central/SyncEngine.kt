@@ -19,6 +19,7 @@ class SyncEngine(
     private val onMessage: (conversationId: Long, messageId: Long) -> Unit = { _, _ -> },
     private val pageLimit: Int = 200,
     private val ownUsername: String? = null,
+    private val onRoom: (conversationId: Long, meta: RoomMeta) -> Unit = { _, _ -> },
 ) {
     suspend fun syncRooms(): Map<Long, Long> = rest.listRooms().associate { it.id to remember(it) }
 
@@ -28,8 +29,11 @@ class SyncEngine(
 
     private fun remember(room: Room): Long {
         room.code?.let { store.setSetting(Account.CODE_PREFIX + room.id, it) }
-        return store.conversationForRoom(room.id, room.name)!!
+        return store.conversationForRoom(room.id, room.name)!!.also { conv -> room.meta?.let { onRoom(conv, it) } }
     }
+
+    /** Ответ сервера о комнате → беседа (заведётся при нужде) + мета. */
+    fun rememberMeta(m: RoomMeta): Long = remember(Room(m.id, m.name, m.isDirect, null, m.code, m))
 
     suspend fun syncHistory(roomId: Long): Long {
         val conv = store.conversationForRoom(roomId, null)!!

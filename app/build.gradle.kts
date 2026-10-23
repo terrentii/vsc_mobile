@@ -17,8 +17,8 @@ android {
         applicationId = "ru.mobile.mys"
         minSdk = 26
         targetSdk = 35
-        versionCode = 1
-        versionName = "0.1.0"
+        versionCode = 3
+        versionName = "0.2.1"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         // WebRTC тянет ~12 МБ нативов на ABI: 32-битный x86 не нужен (эмуляторы — x86_64)
         ndk { abiFilters += listOf("arm64-v8a", "armeabi-v7a", "x86_64") }

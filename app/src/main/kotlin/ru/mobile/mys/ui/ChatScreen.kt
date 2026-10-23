@@ -37,6 +37,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableLongStateOf
@@ -67,7 +68,7 @@ private val TIME = DateTimeFormatter.ofPattern("HH:mm").withZone(ZoneId.systemDe
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
-fun ChatScreen(conversationId: Long, mode: String, onBack: (() -> Unit)?) {
+fun ChatScreen(conversationId: Long, mode: String, onBack: (() -> Unit)?, onRoomSettings: (() -> Unit)? = null) {
     val c = colors
     val vault = AppGraph.vault ?: return
     val ctx = LocalContext.current
@@ -91,6 +92,17 @@ fun ChatScreen(conversationId: Long, mode: String, onBack: (() -> Unit)?) {
     // Список перевёрнут (reverseLayout): низ — новейшее, и докачка картинок выше его не сдвигает.
     // Новое сообщение: если были внизу — остаёмся внизу.
     LaunchedEffect(messages.lastOrNull()?.id) { if (list.firstVisibleItemIndex <= 1) list.animateScrollToItem(0) }
+    // «Центр»: комната глазами пользователя (диалог, своё название, аватар, собеседник)
+    val meta = if (p2p) null else AppGraph.central?.metas?.collectAsState()?.value?.get(conversationId)
+    val dialog = meta?.isDialog == true
+    var lastTyping by remember { mutableLongStateOf(0L) }
+    var lastRead by remember { mutableLongStateOf(0L) }
+    // прочтение: открытый диалог на экране — отметить последнее входящее
+    LaunchedEffect(messages.size, dialog) {
+        if (!dialog || !AppGraph.foreground) return@LaunchedEffect
+        val wire = messages.filter { it.direction == "in" }.mapNotNull { it.wireSeq }.maxOrNull() ?: return@LaunchedEffect
+        if (wire > lastRead) { lastRead = wire; AppGraph.central?.markRead(conversationId, wire) }
+    }
 
     val saveLauncher = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("*/*")) { uri ->
         val bytes = saving
@@ -120,12 +132,46 @@ fun ChatScreen(conversationId: Long, mode: String, onBack: (() -> Unit)?) {
 
     Box(Modifier.fillMaxSize()) {
         Column(Modifier.fillMaxSize()) {
-            TopBar(title.ifEmpty { if (p2p) "Канал" else "Комната" }, onBack, subtitle = {
-                if (p2p) PeerStatus(conversationId) else {
-                    val code = AppGraph.central?.roomCode(conversationId)
-                    SelectionContainer { T(if (code != null) "Код $code" else "Центр", size = 13, color = c.text2, upper = true) }
+            val shownTitle = meta?.title ?: title.ifEmpty { if (p2p) "Канал" else "Комната" }
+            TopBar(
+                shownTitle, onBack,
+                subtitle = {
+                    when {
+                        p2p -> PeerStatus(conversationId)
+                        dialog -> DialogStatus(conversationId, meta?.peerOnline == true)
+                        else -> {
+                            val code = AppGraph.central?.roomCode(conversationId)
+                            SelectionContainer { T(if (code != null) "Код $code" else "Центр", size = 13, color = c.text2, upper = true) }
+                        }
+                    }
+                },
+                leading = if (p2p) null else ({ RoomAvatar(conversationId, meta?.avatarRev ?: 0, shownTitle, 40.dp) }),
+            ) {
+                if (!p2p && onRoomSettings != null) BrutalButton("⚙", small = true, onClick = onRoomSettings)
+            }
+            // «X предлагает диалог / приглашает»: принять или отклонить прямо из чата
+            AnimatedVisibility(meta?.dialogProposedBy != null && !dialog, enter = expandVertically() + fadeIn(), exit = shrinkVertically() + fadeOut()) {
+                val m = meta ?: return@AnimatedVisibility
+                val mine = m.dialogProposedBy == AppGraph.central?.session?.username
+                Bar {
+                    T(
+                        when {
+                            mine && m.pendingInvite -> "Ждём, пока ${m.peer} примет приглашение"
+                            mine -> "Вы предложили ${m.peer} диалог"
+                            m.role == "invited" -> "${m.dialogProposedBy} зовёт в диалог"
+                            else -> "${m.dialogProposedBy} предлагает диалог"
+                        },
+                        Modifier.weight(1f), size = 14, color = c.text2,
+                    )
+                    fun act(action: String) = AppGraph.run {
+                        if (AppGraph.central?.roomOp(conversationId) { dialogAction(it, action) } == null) {
+                            withContext(Dispatchers.Main) { onBack?.invoke() }
+                        }
+                    }
+                    if (!mine) BrutalButton("Принять", small = true, variant = Variant.Primary) { act("accept") }
+                    BrutalButton(if (mine) "Отозвать" else "Нет", small = true) { act("decline") }
                 }
-            })
+            }
             AnimatedVisibility(p2p && AppGraph.online[conversationId] != true, enter = expandVertically() + fadeIn(), exit = shrinkVertically() + fadeOut()) {
                 ConnectBar(conversationId)
             }
@@ -136,7 +182,8 @@ fun ChatScreen(conversationId: Long, mode: String, onBack: (() -> Unit)?) {
                     contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp),
                 ) {
                     items(messages.asReversed(), key = { it.id }) { m ->
-                        MessageRow(m, p2p, title, Modifier.combinedClickable(onClick = {}, onLongClick = { menuFor = m }), Modifier.animateItem())
+                        MessageRow(m, p2p, title, Modifier.combinedClickable(onClick = {}, onLongClick = { menuFor = m }), Modifier.animateItem(),
+                            dialog = dialog, peerRead = meta?.peerRead ?: 0)
                     }
                 }
             }
@@ -157,7 +204,13 @@ fun ChatScreen(conversationId: Long, mode: String, onBack: (() -> Unit)?) {
                 verticalAlignment = Alignment.Bottom, horizontalArrangement = Arrangement.spacedBy(8.dp),
             ) {
                 BrutalButton("+", Modifier.semantics { contentDescription = "Прикрепить файл" }) { pickLauncher.launch(arrayOf("*/*")) }
-                BrutalField(text, { text = it }, "Сообщение", Modifier.weight(1f).heightIn(max = 160.dp), singleLine = false, tag = "message")
+                val locked = meta?.pendingInvite == true
+                BrutalField(text, {
+                    text = it
+                    val now = System.currentTimeMillis()
+                    if (dialog && now - lastTyping > 3_000) { lastTyping = now; AppGraph.central?.typing(conversationId) }
+                }, if (locked) "Ждём принятия приглашения" else "Сообщение", Modifier.weight(1f).heightIn(max = 160.dp),
+                    singleLine = false, tag = "message", enabled = !locked)
                 BrutalButton("→", variant = Variant.Primary, enabled = text.isNotBlank()) { send() }
             }
         }
@@ -192,6 +245,20 @@ fun ChatScreen(conversationId: Long, mode: String, onBack: (() -> Unit)?) {
                 if (body != null) AppGraph.run { AppGraph.central?.edit(m.id, body) }
             })
         }
+    }
+}
+
+/** Диалог: «печатает…» (5 с после сигнала) либо «● в сети». */
+@Composable
+private fun DialogStatus(conversationId: Long, online: Boolean) {
+    val c = colors
+    val until = AppGraph.typing[conversationId] ?: 0L
+    var now by remember { mutableLongStateOf(System.currentTimeMillis()) }
+    LaunchedEffect(until) { while (System.currentTimeMillis() < until) { now = System.currentTimeMillis(); delay(500) }; now = System.currentTimeMillis() }
+    when {
+        now < until -> T("печатает…", size = 13, color = c.accent)
+        online -> T("● В сети", size = 13, color = c.success, upper = true)
+        else -> T("Диалог", size = 13, color = c.text3, upper = true)
     }
 }
 
@@ -230,7 +297,10 @@ private fun ConnectBar(conversationId: Long) {
 }
 
 @Composable
-private fun MessageRow(m: Message, p2p: Boolean, peerName: String, modifier: Modifier, rowModifier: Modifier) {
+private fun MessageRow(
+    m: Message, p2p: Boolean, peerName: String, modifier: Modifier, rowModifier: Modifier,
+    dialog: Boolean = false, peerRead: Long = 0,
+) {
     val c = colors
     val out = m.direction == "out"
     Box(rowModifier.fillMaxWidth(), contentAlignment = if (out) Alignment.CenterEnd else Alignment.CenterStart) {
@@ -243,9 +313,14 @@ private fun MessageRow(m: Message, p2p: Boolean, peerName: String, modifier: Mod
             val author = if (out) "Вы" else if (p2p) peerName.ifEmpty { "Собеседник" } else m.sender ?: "?"
             val time = (m.sentAt ?: m.receivedAt)?.let { TIME.format(Instant.ofEpochMilli(it)) } ?: ""
             val status = when (m.status) { "pending" -> " · отправка"; "failed" -> " · не отправлено"; else -> "" }
+            // диалог: имя не повторяем; у своих — ✓ (на сервере) / ✓✓ кобальтом (прочитано)
+            val wire = m.wireSeq
+            val read = dialog && out && wire != null && wire <= peerRead
+            val ticks = if (dialog && out && status.isEmpty()) (if (read) "  ✓✓" else "  ✓") else ""
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
-                T(author, Modifier.weight(1f, fill = false), size = 12, color = if (out) c.accent else c.text2, bold = true, upper = true, maxLines = 1)
+                if (!dialog) T(author, Modifier.weight(1f, fill = false), size = 12, color = if (out) c.accent else c.text2, bold = true, upper = true, maxLines = 1)
                 T("$time$status", size = 12, color = if (m.status == "failed") c.warn else c.text3, mono = true)
+                if (ticks.isNotEmpty()) T(ticks.trim(), size = 12, color = if (read) c.accent else c.text3, bold = true)
             }
             m.replyAuthor?.let { T("↩ $it: ${m.replySnippet ?: ""}", size = 13, color = c.text2) }
             when (m.kind) {

@@ -46,6 +46,11 @@ class MemoryCentralStore : CentralStore {
     @Synchronized override fun setStatus(messageId: Long, status: String) { rows.first { it.id == messageId }.status = status }
     @Synchronized override fun setBody(messageId: Long, body: ByteArray) { rows.first { it.id == messageId }.body = body }
     @Synchronized override fun delete(messageId: Long) { rows.removeAll { it.id == messageId } }
+    @Synchronized override fun forgetConversation(conversationId: Long) {
+        rows.removeAll { it.m.conversationId == conversationId }
+        convs.remove(conversationId)
+    }
+
     @Synchronized override fun claimOwn(username: String) {
         rows.filter { it.direction == "in" && it.m.sender == username }.forEach { it.direction = "out"; it.status = "sent" }
     }

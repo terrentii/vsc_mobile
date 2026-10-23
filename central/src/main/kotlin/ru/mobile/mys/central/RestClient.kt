@@ -73,6 +73,65 @@ class RestClient(baseUrl: String, var token: String? = null, private val http: O
     suspend fun downloadMedia(roomId: Long, filename: String): ByteArray =
         call(Request.Builder().url("$baseUrl/api/rooms/$roomId/media/$filename"))
 
+    // -- настройки комнат, диалоги, аватарки (vsc_web/dialogs.py) --------------
+
+    suspend fun getRoom(roomId: Long): RoomMeta = meta(get("/api/rooms/$roomId"))
+
+    suspend fun updateRoom(roomId: Long, name: String?, isOpen: Boolean?): RoomMeta =
+        meta(send("PATCH", "/api/rooms/$roomId", JSONObject().apply { name?.let { put("name", it) }; isOpen?.let { put("is_open", it) } }))
+
+    suspend fun addMember(roomId: Long, login: String): RoomMeta = meta(post("/api/rooms/$roomId/members", JSONObject().put("login", login)))
+
+    suspend fun removeMember(roomId: Long, login: String): RoomMeta =
+        meta(send("DELETE", "/api/rooms/$roomId/members/" + java.net.URLEncoder.encode(login, "UTF-8").replace("+", "%20"), null))
+
+    /** Выйти; null — комнаты у нас больше нет (как и у прочих операций, удаливших её). */
+    suspend fun leaveRoom(roomId: Long): RoomMeta? {
+        call(Request.Builder().url("$baseUrl/api/rooms/$roomId/leave").post(ByteArray(0).toRequestBody(jsonType)))
+        return null
+    }
+
+    /** propose/accept/decline/disable; null — отклонённое приглашение удалило комнату. */
+    suspend fun dialogAction(roomId: Long, action: String): RoomMeta? {
+        val o = post("/api/rooms/$roomId/dialog", JSONObject().put("action", action))
+        return if (o.optBoolean("deleted", false)) null else meta(o)
+    }
+
+    suspend fun invite(login: String): RoomMeta = meta(post("/api/dialogs", JSONObject().put("login", login)))
+
+    suspend fun setTitle(roomId: Long, title: String): RoomMeta = meta(send("PATCH", "/api/rooms/$roomId/me", JSONObject().put("title", title)))
+
+    suspend fun putAvatar(roomId: Long, data: ByteArray): RoomMeta {
+        val form = MultipartBody.Builder().setType(MultipartBody.FORM)
+            .addFormDataPart("file", "avatar", data.toRequestBody("application/octet-stream".toMediaType())).build()
+        return meta(json(call(Request.Builder().url("$baseUrl/api/rooms/$roomId/avatar").put(form))))
+    }
+
+    suspend fun deleteAvatar(roomId: Long): RoomMeta = meta(send("DELETE", "/api/rooms/$roomId/avatar", null))
+
+    /** PNG аватарки глазами пользователя; null — её нет. */
+    suspend fun getAvatar(roomId: Long): ByteArray? = try {
+        call(Request.Builder().url("$baseUrl/api/rooms/$roomId/avatar"))
+    } catch (e: ServerException) {
+        if (e.code == "not_found") null else throw e
+    }
+
+    suspend fun markRead(roomId: Long, messageId: Long) {
+        call(Request.Builder().url("$baseUrl/api/rooms/$roomId/read").post(JSONObject().put("message_id", messageId).toString().toRequestBody(jsonType)))
+    }
+
+    /** (share_read, share_online). */
+    suspend fun me(): Pair<Boolean, Boolean> = get("/api/me").let { it.optBoolean("share_read", true) to it.optBoolean("share_online", true) }
+
+    suspend fun setMe(shareRead: Boolean?, shareOnline: Boolean?): Pair<Boolean, Boolean> =
+        send("PATCH", "/api/me", JSONObject().apply { shareRead?.let { put("share_read", it) }; shareOnline?.let { put("share_online", it) } })
+            .let { it.optBoolean("share_read", true) to it.optBoolean("share_online", true) }
+
+    private fun meta(o: JSONObject): RoomMeta = parse("room") { parseMeta(o) }
+
+    private suspend fun send(method: String, path: String, body: JSONObject?) =
+        json(call(Request.Builder().url(baseUrl + path).method(method, (body ?: JSONObject()).toString().toRequestBody(jsonType))))
+
     private fun credentials(u: String, p: String) = JSONObject().put("username", u).put("password", p)
 
     private fun session(o: JSONObject): Session = parse("auth") {
