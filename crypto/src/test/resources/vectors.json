@@ -197,5 +197,69 @@
   "confirm_mac": "ff0043f46414a71d551601fea84ab98c447a25dea1a00254518582af1dc0b4c6",
   "sk": "cfb1eea5fe2b16d1ed0e364df1be2585b0be658b8a2c81e1004440131540c5b6",
   "bob_pub": "4092706f14bb0928fd7712e331825bfbae09269bc18e85281f319c02e5875f3e"
+ },
+ "mesh": {
+  "prs": "3d6d5d82ee466735faeb946e0fa2f4a78435efbdfb528bd686e4d6a34b6ec1e1",
+  "tag_key": "3b9654d4eeae46aa101bb48fc7a53cd1ad30d1e1615fe4bd37302ea7fbf0f1d3",
+  "tags": [
+   {
+    "hour": 0,
+    "tag": "cda7ef24017a8d12d3a0972b4f50ce0fe82568b8abd6909cc753acf71d133e7b"
+   },
+   {
+    "hour": 494000,
+    "tag": "1b52e411b642d3681c02d4f920cb28614a7c23def2f0e0a103056dff99429389"
+   },
+   {
+    "hour": 1099511627776,
+    "tag": "d0a8e1c1499a055e7d235dd3351357d53a5f787e0195a7d80c52341be7af0e2a"
+   }
+  ],
+  "packets": [
+   {
+    "type": 1,
+    "id": "33f42fc5e50ef48c146b4a25a3a07654",
+    "ttl": 8,
+    "hops": 2,
+    "tag": "0bdbae03009bb4c1d07e3e5ca6371888face08a0ccdbd90e63e978c73c99909b",
+    "nonce": "392e6c5d69b9bbbcb36fc89daadcf340",
+    "route_id": "",
+    "payload": "",
+    "hex": "0101080233f42fc5e50ef48c146b4a25a3a076540bdbae03009bb4c1d07e3e5ca6371888face08a0ccdbd90e63e978c73c99909b392e6c5d69b9bbbcb36fc89daadcf340"
+   },
+   {
+    "type": 2,
+    "id": "33f42fc5e50ef48c146b4a25a3a07654",
+    "ttl": 0,
+    "hops": 1,
+    "tag": "",
+    "nonce": "077772af2149d3bd7add311af07ef5c5",
+    "route_id": "d37fd70e1522eff93a5a7e4ec170ca5b",
+    "payload": "",
+    "hex": "0102000133f42fc5e50ef48c146b4a25a3a07654d37fd70e1522eff93a5a7e4ec170ca5b077772af2149d3bd7add311af07ef5c5"
+   },
+   {
+    "type": 3,
+    "id": "d37fd70e1522eff93a5a7e4ec170ca5b",
+    "ttl": 0,
+    "hops": 0,
+    "tag": "",
+    "nonce": "",
+    "route_id": "",
+    "payload": "00016d7973",
+    "hex": "01030000d37fd70e1522eff93a5a7e4ec170ca5b00016d7973"
+   },
+   {
+    "type": 4,
+    "id": "d37fd70e1522eff93a5a7e4ec170ca5b",
+    "ttl": 0,
+    "hops": 0,
+    "tag": "",
+    "nonce": "",
+    "route_id": "",
+    "payload": "",
+    "hex": "01040000d37fd70e1522eff93a5a7e4ec170ca5b"
+   }
+  ]
  }
 }

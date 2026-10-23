@@ -159,5 +159,23 @@ v["handshake"] = {
     "bob_pub": H(P.x25519_keypair_from_seed(P.hkdf(isk, 32, b"", b"mys-ratchet-bob-dh"))[1]),
 }
 
+MT = importlib.import_module("mys_mesh.tags")
+MP = importlib.import_module("mys_mesh.packet")
+mesh_prs = det("mesh-prs")
+mesh_key = MT.tag_key(mesh_prs)
+mesh_packets = [
+    MP.Packet(MP.RREQ, det("rreq-id", 16), ttl=8, hops=2, tag=det("mesh-tag"), nonce=det("n1", 16)),
+    MP.Packet(MP.RREP, det("rreq-id", 16), hops=1, route_id=det("route", 16), nonce=det("n2", 16)),
+    MP.Packet(MP.DATA, det("route", 16), payload=b"\x00\x01mys"),
+    MP.Packet(MP.RERR, det("route", 16)),
+]
+v["mesh"] = {
+    "prs": H(mesh_prs), "tag_key": H(mesh_key),
+    "tags": [{"hour": h, "tag": H(MT.tag_for_hour(mesh_key, h))} for h in (0, 494_000, 2**40)],
+    "packets": [{"type": p.type, "id": H(p.id), "ttl": p.ttl, "hops": p.hops, "tag": H(p.tag),
+                 "nonce": H(p.nonce), "route_id": H(p.route_id), "payload": H(p.payload),
+                 "hex": H(MP.encode(p))} for p in mesh_packets],
+}
+
 json.dump(v, sys.stdout, ensure_ascii=False, indent=1)
 print()
