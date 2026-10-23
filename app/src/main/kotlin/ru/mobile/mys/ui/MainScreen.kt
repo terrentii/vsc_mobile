@@ -3,6 +3,9 @@ package ru.mobile.mys.ui
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.core.Animatable
+import androidx.compose.ui.graphics.graphicsLayer
+import kotlinx.coroutines.delay
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.offset
@@ -69,11 +72,13 @@ fun MainScreen(mode: String, onMode: (String) -> Unit, onOpen: (Long) -> Unit, o
     var last by remember { mutableStateOf(emptyMap<Long, Message>()) }
     var menuFor by remember { mutableStateOf<Conversation?>(null) }
     val list = rememberLazyListState()
+    var loadedMode by remember { mutableStateOf<String?>(null) }
     LaunchedEffect(mode, tick) {
         withContext(Dispatchers.IO) {
             convs = vault.conversations.list(mode)
             last = vault.messages.lastByConversation(mode)
         }
+        loadedMode = mode
     }
     val central = AppGraph.central
     val p2p = mode == DECENTRALIZED
@@ -110,9 +115,13 @@ fun MainScreen(mode: String, onMode: (String) -> Unit, onOpen: (Long) -> Unit, o
                     }
                     if (pinned.isNotEmpty()) section("Закреплённые", pinned, first = true)
                     section(if (p2p) "Каналы" else "Комнаты", rest, first = pinned.isEmpty())
-                    if (convs.isEmpty()) item(key = "empty") {
+                    // Только когда список этого режима загружен; проявляется после того, как
+                    // строки прошлого режима уехали, — иначе текст наезжал на них
+                    if (convs.isEmpty() && loadedMode == mode) item(key = "empty:$mode") {
+                        val shown = remember { Animatable(0f) }
+                        LaunchedEffect(Unit) { delay(250); shown.animateTo(1f, tween(300)) }
                         T(if (p2p) "Каналов пока нет — откройте новый по секретной фразе" else "Комнат пока нет — создайте или войдите по коду",
-                            Modifier.padding(16.dp), color = c.text3)
+                            Modifier.graphicsLayer { alpha = shown.value; translationY = (1 - shown.value) * 8.dp.toPx() }.padding(16.dp), color = c.text3)
                     }
                 }
                 // При прокрутке кнопки сворачиваются в квадраты в правом нижнем углу
