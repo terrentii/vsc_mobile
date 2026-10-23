@@ -183,7 +183,7 @@ fun ChatScreen(conversationId: Long, mode: String, onBack: (() -> Unit)?, onRoom
                 ) {
                     items(messages.asReversed(), key = { it.id }) { m ->
                         MessageRow(m, p2p, title, Modifier.combinedClickable(onClick = {}, onLongClick = { menuFor = m }), Modifier.animateItem(),
-                            dialog = dialog, peerRead = meta?.peerRead ?: 0)
+                            dialog = dialog)
                     }
                 }
             }
@@ -299,7 +299,7 @@ private fun ConnectBar(conversationId: Long) {
 @Composable
 private fun MessageRow(
     m: Message, p2p: Boolean, peerName: String, modifier: Modifier, rowModifier: Modifier,
-    dialog: Boolean = false, peerRead: Long = 0,
+    dialog: Boolean = false,
 ) {
     val c = colors
     val out = m.direction == "out"
@@ -313,14 +313,10 @@ private fun MessageRow(
             val author = if (out) "Вы" else if (p2p) peerName.ifEmpty { "Собеседник" } else m.sender ?: "?"
             val time = (m.sentAt ?: m.receivedAt)?.let { TIME.format(Instant.ofEpochMilli(it)) } ?: ""
             val status = when (m.status) { "pending" -> " · отправка"; "failed" -> " · не отправлено"; else -> "" }
-            // диалог: имя не повторяем; у своих — ✓ (на сервере) / ✓✓ кобальтом (прочитано)
-            val wire = m.wireSeq
-            val read = dialog && out && wire != null && wire <= peerRead
-            val ticks = if (dialog && out && status.isEmpty()) (if (read) "  ✓✓" else "  ✓") else ""
+            // диалог: имя не повторяем
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
                 if (!dialog) T(author, Modifier.weight(1f, fill = false), size = 12, color = if (out) c.accent else c.text2, bold = true, upper = true, maxLines = 1)
                 T("$time$status", size = 12, color = if (m.status == "failed") c.warn else c.text3, mono = true)
-                if (ticks.isNotEmpty()) T(ticks.trim(), size = 12, color = if (read) c.accent else c.text3, bold = true)
             }
             m.replyAuthor?.let { T("↩ $it: ${m.replySnippet ?: ""}", size = 13, color = c.text2) }
             when (m.kind) {

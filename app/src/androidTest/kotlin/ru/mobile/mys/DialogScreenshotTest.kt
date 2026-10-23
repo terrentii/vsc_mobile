@@ -49,7 +49,9 @@ class DialogScreenshotTest {
         File(dir, "$name.png").outputStream().use { compose.onRoot().captureToImage().asAndroidBitmap().compress(Bitmap.CompressFormat.PNG, 100, it) }
     }
 
-    private fun waitText(t: String) = compose.waitUntil(30_000) { compose.onAllNodesWithText(t, substring = true).fetchSemanticsNodes().isNotEmpty() }
+    private fun waitText(t: String) = try {
+        compose.waitUntil(30_000) { compose.onAllNodesWithText(t, substring = true).fetchSemanticsNodes().isNotEmpty() }
+    } catch (e: Throwable) { shot("timeout"); throw e }
 
     @Test fun dialogScreens() {
         val args = InstrumentationRegistry.getArguments()
@@ -61,7 +63,7 @@ class DialogScreenshotTest {
         waitText("КАНАЛЫ")
         runBlocking { AppGraph.central!!.login(url!!, args.getString("centralUser")!!, args.getString("centralPassword")!!) }
         compose.onNodeWithText("ЦЕНТР").performClick()
-        waitText("Избранное")
+        waitText("КОМНАТЫ")
         Thread.sleep(1500)
         shot("d1-list")
         // прокрутили вниз и обратно — кнопки «Центра» остаются квадратами
