@@ -243,7 +243,7 @@ private fun preview(m: Message?, p2p: Boolean): String {
     val what = when (m.kind) {
         "image" -> "Изображение"
         "file" -> "Файл · ${m.filename ?: ""}"
-        else -> m.body?.decodeToString()?.replace('\n', ' ') ?: ""
+        else -> m.body?.decodeToString()?.replace("```", "")?.replace('\n', ' ')?.trim() ?: ""
     }
     return who + what
 }

@@ -114,6 +114,7 @@ class CentralService(
         rest = r
         session = s
         Account.save(store, s)
+        store.claimOwn(s.username)
         val engine = SyncEngine(store, r, onMessage = { c, m -> _events.tryEmit(CentralEvent.Message(c, m)) }, ownUsername = s.username)
         sync = engine
         knownRooms = syncLock.withLock { engine.syncAll() }.keys

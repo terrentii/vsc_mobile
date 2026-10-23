@@ -51,6 +51,10 @@ class ScreenshotTest {
     }
 
     // по таймауту — кадр того, что было на экране
+    private fun png(w: Int, h: Int, color: Int): ByteArray = java.io.ByteArrayOutputStream().also {
+        Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888).apply { eraseColor(color) }.compress(Bitmap.CompressFormat.PNG, 100, it)
+    }.toByteArray()
+
     private fun waitText(t: String) = try {
         compose.waitUntil(30_000) { compose.onAllNodesWithText(t, substring = true).fetchSemanticsNodes().isNotEmpty() }
     } catch (e: Throwable) { shot("timeout"); throw e }
@@ -69,6 +73,9 @@ class ScreenshotTest {
         v.messages.add(conv, "in", "Привет! Это канал МЫС.".toByteArray(), "received")
         v.messages.add(conv, "out", "Привет, вижу тебя".toByteArray(), "sent")
         v.messages.add(conv, "out", "А это ещё в пути".toByteArray(), "pending")
+        v.messages.add(conv, "in", png(1600, 900, 0xFF2E7D32.toInt()), "received", kind = "image", filename = "гор.png")
+        v.messages.add(conv, "out", png(900, 1600, 0xFF4D7BFF.toInt()), "sent", kind = "image", filename = "верт.png")
+        v.messages.add(conv, "in", "Смотри:\n```\nfun main() {\n    println(\"МЫС\")\n}\n```".toByteArray(), "received")
         v.conversations.setPinned(conv, true)
         for (i in 1..12) v.conversations.add(DECENTRALIZED, roomId = byteArrayOf((10 + i).toByte()), title = "Канал №$i")
         AppGraph.changed()
@@ -78,7 +85,7 @@ class ScreenshotTest {
         shot("2b-channels-scrolled")
         compose.onNode(hasScrollAction()).performScrollToIndex(0)
         compose.onNodeWithText("Алиса").performClick()
-        waitText("Это канал")
+        waitText("Смотри")
         shot("3-chat")
         compose.onNodeWithTag("message").performTextInput("Длинное сообщение,\nчтобы проверить,\nкак кнопки держат строку")
         shot("3b-chat-typing")

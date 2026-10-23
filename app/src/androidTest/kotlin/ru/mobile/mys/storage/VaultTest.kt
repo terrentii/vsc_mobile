@@ -122,6 +122,20 @@ class VaultTest {
         }
     }
 
+    @Test fun claimOwnOnlyCentral() {
+        create().use { v ->
+            val room = v.conversations.add("centralized", title = "R")
+            val chan = v.conversations.add("decentralized", title = "P")
+            v.messages.add(room, "in", "моё".toByteArray(), "received", sender = "me")
+            v.messages.add(room, "in", "чужое".toByteArray(), "received", sender = "other")
+            v.messages.add(chan, "in", "p2p".toByteArray(), "received", sender = "me")
+            v.messages.claimOwn("centralized", "me")
+            assertEquals(listOf("out", "in"), v.messages.list(room).map { it.direction })
+            assertEquals("in", v.messages.list(chan).single().direction)
+            assertTrue(v.messages.list(room).first().sentAt != null)
+        }
+    }
+
     @Test fun settingsDeletePrefix() {
         create().use { v ->
             v.settings.set("central.cursor.1", "5")

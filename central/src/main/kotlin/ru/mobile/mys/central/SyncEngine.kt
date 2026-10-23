@@ -135,20 +135,24 @@ class SyncEngine(
                 return null
             }
         }
-        if (ownUsername != null && msg.sender == ownUsername) {
+        val own = ownUsername != null && msg.sender == ownUsername
+        if (own) {
             store.findUnconfirmedOutByBody(conv, msg.body.toByteArray())?.let {
                 store.markSent(it.id, msg.id) // эхо без client_msg_id (веб-путь)
                 return null
             }
         }
+        // Своё сообщение без локальной копии (другое устройство, веб, переустановка) — тоже исходящее
+        val dir = if (own) "out" else "in"
+        val status = if (own) "sent" else "received"
         val ts = epochMs(msg.createdAt)
         val id = if (msg.media != null) {
             val name = displayName(msg.media)
-            store.add(NewMessage(conv, "in", null, "received", kindForFilename(msg.media), name,
+            store.add(NewMessage(conv, dir, null, status, kindForFilename(msg.media), name,
                 URLConnection.guessContentTypeFromName(name), msg.sender, msg.id, mediaRef = msg.media,
                 replyAuthor = msg.reply?.sender, replySnippet = msg.reply?.body, timestamp = ts))
         } else {
-            store.add(NewMessage(conv, "in", msg.body.toByteArray(), "received", sender = msg.sender, wireSeq = msg.id,
+            store.add(NewMessage(conv, dir, msg.body.toByteArray(), status, sender = msg.sender, wireSeq = msg.id,
                 replyAuthor = msg.reply?.sender, replySnippet = msg.reply?.body, timestamp = ts))
         }
         onMessage(conv, id)

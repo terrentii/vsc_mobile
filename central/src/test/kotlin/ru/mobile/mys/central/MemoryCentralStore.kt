@@ -6,7 +6,8 @@ class MemoryCentralStore : CentralStore {
         var body: ByteArray? = m.body
         var status: String = m.status
         var wireSeq: Long? = m.wireSeq
-        fun stored() = StoredMessage(id, m.conversationId, m.direction, body, status, wireSeq, m.mediaRef, m.kind, m.sender)
+        var direction: String = m.direction
+        fun stored() = StoredMessage(id, m.conversationId, direction, body, status, wireSeq, m.mediaRef, m.kind, m.sender)
     }
 
     private val settings = HashMap<String, String>()
@@ -36,13 +37,16 @@ class MemoryCentralStore : CentralStore {
         rows.find { it.m.conversationId == conversationId && it.wireSeq == wireSeq }?.stored()
 
     @Synchronized override fun findOutByClientId(conversationId: Long, clientMsgId: String) =
-        rows.find { it.m.conversationId == conversationId && it.m.direction == "out" && it.m.clientMsgId == clientMsgId }?.stored()
+        rows.find { it.m.conversationId == conversationId && it.direction == "out" && it.m.clientMsgId == clientMsgId }?.stored()
 
     @Synchronized override fun findUnconfirmedOutByBody(conversationId: Long, body: ByteArray) =
-        rows.find { it.m.conversationId == conversationId && it.m.direction == "out" && it.wireSeq == null && it.body?.contentEquals(body) == true }?.stored()
+        rows.find { it.m.conversationId == conversationId && it.direction == "out" && it.wireSeq == null && it.body?.contentEquals(body) == true }?.stored()
 
     @Synchronized override fun markSent(messageId: Long, wireSeq: Long) { rows.first { it.id == messageId }.apply { this.wireSeq = wireSeq; status = "sent" } }
     @Synchronized override fun setStatus(messageId: Long, status: String) { rows.first { it.id == messageId }.status = status }
     @Synchronized override fun setBody(messageId: Long, body: ByteArray) { rows.first { it.id == messageId }.body = body }
     @Synchronized override fun delete(messageId: Long) { rows.removeAll { it.id == messageId } }
+    @Synchronized override fun claimOwn(username: String) {
+        rows.filter { it.direction == "in" && it.m.sender == username }.forEach { it.direction = "out"; it.status = "sent" }
+    }
 }

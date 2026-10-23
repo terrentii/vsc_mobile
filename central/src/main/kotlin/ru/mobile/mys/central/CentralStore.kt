@@ -36,4 +36,7 @@ interface CentralStore {
     fun setStatus(messageId: Long, status: String)
     fun setBody(messageId: Long, body: ByteArray)
     fun delete(messageId: Long)
+
+    /** Свои сообщения, сохранённые «входящими» (до переустановки, из веба) → исходящие. Логин на сервере уникален. */
+    fun claimOwn(username: String)
 }

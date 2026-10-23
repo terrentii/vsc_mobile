@@ -102,6 +102,12 @@ class MessagesRepo internal constructor(private val db: SQLiteDatabase) {
             " WHERE c.mode=? GROUP BY m.conversation_id)", mode,
     ) { row(it) }.associateBy { it.conversationId }
 
+    fun claimOwn(mode: String, sender: String) = db.execSQL(
+        "UPDATE messages SET direction='out', status='sent', sent_at=COALESCE(sent_at, received_at)" +
+            " WHERE direction='in' AND sender=? AND conversation_id IN (SELECT id FROM conversations WHERE mode=?)",
+        arrayOf(sender, mode),
+    )
+
     fun setStatus(id: Long, status: String) = db.execSQL("UPDATE messages SET status=? WHERE id=?", arrayOf(status, id))
 
     fun findByWire(conversationId: Long, wireSeq: Long): Message? =

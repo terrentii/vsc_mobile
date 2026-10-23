@@ -30,6 +30,8 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.layout.size
+import androidx.compose.ui.unit.DpSize
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -86,7 +88,9 @@ fun ChatScreen(conversationId: Long, mode: String, onBack: (() -> Unit)?) {
             messages = vault.messages.list(conversationId)
         }
     }
-    LaunchedEffect(messages.size) { if (messages.isNotEmpty()) list.scrollToItem(messages.size - 1) }
+    // Список перевёрнут (reverseLayout): низ — новейшее, и докачка картинок выше его не сдвигает.
+    // Новое сообщение: если были внизу — остаёмся внизу.
+    LaunchedEffect(messages.lastOrNull()?.id) { if (list.firstVisibleItemIndex <= 1) list.animateScrollToItem(0) }
 
     val saveLauncher = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("*/*")) { uri ->
         val bytes = saving
@@ -128,10 +132,10 @@ fun ChatScreen(conversationId: Long, mode: String, onBack: (() -> Unit)?) {
 
             Blueprint(Modifier.weight(1f).fillMaxWidth()) {
                 LazyColumn(
-                    Modifier.fillMaxSize(), state = list,
+                    Modifier.fillMaxSize(), state = list, reverseLayout = true,
                     contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp),
                 ) {
-                    items(messages, key = { it.id }) { m ->
+                    items(messages.asReversed(), key = { it.id }) { m ->
                         MessageRow(m, p2p, title, Modifier.combinedClickable(onClick = {}, onLongClick = { menuFor = m }), Modifier.animateItem())
                     }
                 }
@@ -247,7 +251,7 @@ private fun MessageRow(m: Message, p2p: Boolean, peerName: String, modifier: Mod
             when (m.kind) {
                 "image" -> MediaImage(m)
                 "file" -> T("📎 ${m.filename ?: "файл"}${m.body?.let { " · ${it.size / 1024} КБ" } ?: ""}", color = c.bubbleThemText)
-                else -> T(m.body?.decodeToString() ?: "", color = if (out) c.text else c.bubbleThemText)
+                else -> MessageText(m.body?.decodeToString() ?: "", if (out) c.text else c.bubbleThemText)
             }
         }
     }
@@ -263,8 +267,20 @@ private fun MediaImage(m: Message) {
         return
     }
     val bitmap by produceState<ImageBitmap?>(null, m.id, bytes.size) { value = withContext(Dispatchers.Default) { decodePreview(bytes) } }
-    bitmap?.let { Image(it, m.filename, Modifier.fillMaxWidth().heightIn(max = 280.dp), contentScale = ContentScale.Fit) }
+    bitmap?.let { Image(it, m.filename, Modifier.size(imageSize(it.width, it.height)), contentScale = ContentScale.Crop) }
         ?: T(m.filename ?: "изображение", color = colors.text3)
+}
+
+private val IMAGE_MAX_W = 280.dp
+private val IMAGE_MAX_H = 360.dp
+private val IMAGE_MIN_W = 160.dp // чтобы строка «автор · время» не сжималась
+
+/** Размер превью по пропорциям картинки: пузырь облегает её, без полос по краям. */
+internal fun imageSize(w: Int, h: Int): DpSize {
+    if (w <= 0 || h <= 0) return DpSize(IMAGE_MAX_W, IMAGE_MAX_W)
+    val aspect = w.toFloat() / h
+    return if (aspect >= IMAGE_MAX_W / IMAGE_MAX_H) DpSize(IMAGE_MAX_W, IMAGE_MAX_W / aspect)
+    else DpSize(maxOf(IMAGE_MAX_H * aspect, IMAGE_MIN_W), IMAGE_MAX_H) // очень узкие — лёгкая обрезка по высоте
 }
 
 private fun decodePreview(bytes: ByteArray): ImageBitmap? {
@@ -278,7 +294,7 @@ private fun decodePreview(bytes: ByteArray): ImageBitmap? {
 private fun preview(m: Message) = when (m.kind) {
     "image" -> "Изображение"
     "file" -> m.filename ?: "Файл"
-    else -> m.body?.decodeToString() ?: ""
+    else -> m.body?.decodeToString()?.replace("```", "") ?: ""
 }
 
 private suspend fun sendFile(ctx: android.content.Context, uri: Uri, conversationId: Long, p2p: Boolean) {
