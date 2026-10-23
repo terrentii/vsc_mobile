@@ -67,11 +67,11 @@ fun SettingsScreen(onBack: () -> Unit) {
                     AppGraph.setSetting(AppGraph.K_AUTOLOCK, autolock.toString())
                 }
             }
-            Toggle("Стереть всё после 10 неверных паролей", duress) { on ->
+            Toggle("Стереть всё после 10 неверных ПИН-кодов", duress) { on ->
                 Sidecar.read(meta).apply { wipeEnabled = on }.write(meta)
                 duress = on
             }
-            BrutalButton("Сменить мастер-пароль", Modifier.fillMaxWidth()) { changingPassword = true }
+            BrutalButton("Сменить ПИН-код", Modifier.fillMaxWidth()) { changingPassword = true }
 
             Section("Сервер")
             BrutalField(server, { server = it }, "https://soufos.ru", Modifier.fillMaxWidth(), tag = "settings_server")
@@ -103,19 +103,19 @@ private fun PasswordChange(onDone: (String?) -> Unit) {
     var old by remember { mutableStateOf("") }
     var new by remember { mutableStateOf("") }
     var error by remember { mutableStateOf<String?>(null) }
-    Overlay("Смена пароля", onDismiss = { onDone(null) }) {
-        BrutalField(old, { old = it }, "Текущий пароль", Modifier.fillMaxWidth(), password = true)
-        BrutalField(new, { new = it }, "Новый пароль (≥ 8)", Modifier.fillMaxWidth(), password = true)
+    Overlay("Смена ПИН-кода", onDismiss = { onDone(null) }) {
+        PinField(old, { old = it }, "Текущий ПИН-код", Modifier.fillMaxWidth())
+        PinField(new, { new = it }, "Новый ПИН-код (≥ 4)", Modifier.fillMaxWidth())
         error?.let { T(it, color = colors.warn) }
-        BrutalButton("Сменить", Modifier.fillMaxWidth(), Variant.Primary, enabled = old.isNotEmpty() && new.length >= 8) {
+        BrutalButton("Сменить", Modifier.fillMaxWidth(), Variant.Primary, enabled = old.isNotEmpty() && new.length >= 4) {
             val vault = AppGraph.vault ?: return@BrutalButton
             AppGraph.scope.launch {
                 try {
                     vault.changePassword(old.toByteArray(), new.toByteArray())
                     BiometricKey(AppGraph.vaultDir).disable()
-                    onDone("Пароль изменён; вход по отпечатку нужно включить заново")
+                    onDone("ПИН-код изменён; вход по отпечатку нужно включить заново")
                 } catch (e: WrongPassword) {
-                    error = "Текущий пароль неверен"
+                    error = "Текущий ПИН-код неверен"
                 }
             }
         }

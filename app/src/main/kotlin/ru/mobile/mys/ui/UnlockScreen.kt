@@ -40,7 +40,7 @@ import ru.mobile.mys.storage.Vault
 import ru.mobile.mys.storage.VaultLocked
 import ru.mobile.mys.storage.WrongPassword
 
-private const val MIN_PASSWORD = 8
+private const val MIN_PIN = 4
 
 @Composable
 fun UnlockScreen() {
@@ -75,9 +75,9 @@ fun UnlockScreen() {
         ) {
             Image(painterResource(R.mipmap.ic_launcher), null, Modifier.size(64.dp))
             T("МЫС", size = 40, bold = true, upper = true)
-            T(if (creating) "Задайте мастер-пароль: он шифрует всё на телефоне" else "Введите мастер-пароль", color = c.text2)
-            BrutalField(pw, { pw = it }, "Пароль", Modifier.fillMaxWidth(), password = true, tag = "password")
-            if (creating) BrutalField(pw2, { pw2 = it }, "Повторите пароль", Modifier.fillMaxWidth(), password = true, tag = "password2")
+            T(if (creating) "Задайте ПИН-код: он шифрует всё на телефоне" else "Введите ПИН-код", color = c.text2)
+            PinField(pw, { pw = it }, "ПИН-код", Modifier.fillMaxWidth(), tag = "password")
+            if (creating) PinField(pw2, { pw2 = it }, "Повторите ПИН-код", Modifier.fillMaxWidth(), tag = "password2")
             error?.let { T(it, color = c.warn) }
             BrutalButton(
                 if (busy) "Открываю…" else if (creating) "Создать хранилище" else "Открыть",
@@ -95,8 +95,8 @@ fun UnlockScreen() {
 private fun unlock(creating: Boolean, pw: String, pw2: String): String? = try {
     if (creating) {
         when {
-            pw.length < MIN_PASSWORD -> "Пароль — не короче $MIN_PASSWORD символов"
-            pw != pw2 -> "Пароли не совпадают"
+            pw.length < MIN_PIN -> "ПИН-код — не короче $MIN_PIN символов"
+            pw != pw2 -> "ПИН-коды не совпадают"
             else -> null.also { AppGraph.unlocked(Vault.create(AppGraph.vaultDir, pw.toByteArray())) }
         }
     } else {
@@ -104,21 +104,21 @@ private fun unlock(creating: Boolean, pw: String, pw2: String): String? = try {
         null
     }
 } catch (e: WrongPassword) {
-    "Неверный пароль"
+    "Неверный ПИН-код"
 } catch (e: VaultLocked) {
     "Слишком много попыток — подождите ${e.remainingMs / 1000 + 1} с"
 }
 
 private fun biometricUnlock(activity: FragmentActivity, onError: (String) -> Unit) {
     val bio = BiometricKey(AppGraph.vaultDir)
-    val cipher = bio.decryptCipher() ?: return onError("Отпечатки изменились — войдите по паролю")
+    val cipher = bio.decryptCipher() ?: return onError("Отпечатки изменились — войдите по ПИН-коду")
     val prompt = BiometricPrompt(activity, ContextCompat.getMainExecutor(activity), object : BiometricPrompt.AuthenticationCallback() {
         override fun onAuthenticationSucceeded(result: BiometricPrompt.AuthenticationResult) {
             val unlocked = result.cryptoObject?.cipher ?: return
             AppGraph.scope.launch {
                 val key = bio.open(unlocked)
                 runCatching { AppGraph.unlocked(Vault.openWithKey(AppGraph.vaultDir, key)) }
-                    .onFailure { AppGraph.errors.tryEmit("Не удалось открыть хранилище — войдите по паролю") }
+                    .onFailure { AppGraph.errors.tryEmit("Не удалось открыть хранилище — войдите по ПИН-коду") }
                 key.fill(0)
             }
         }
@@ -129,7 +129,7 @@ private fun biometricUnlock(activity: FragmentActivity, onError: (String) -> Uni
     })
     prompt.authenticate(
         BiometricPrompt.PromptInfo.Builder().setTitle("МЫС").setSubtitle("Разблокировка хранилища")
-            .setNegativeButtonText("Пароль").setAllowedAuthenticators(BIOMETRIC_STRONG).build(),
+            .setNegativeButtonText("ПИН-код").setAllowedAuthenticators(BIOMETRIC_STRONG).build(),
         BiometricPrompt.CryptoObject(cipher),
     )
 }

@@ -149,7 +149,7 @@ fun MainScreen(mode: String, onMode: (String) -> Unit, onOpen: (Long) -> Unit, o
 
         when (prompt) {
             Prompt.New -> if (p2p) {
-                TextPrompt("Новый канал", "Секретная фраза", okLabel = "Открыть канал", password = true, onDone = { phrase ->
+                TextPrompt("Новый канал", "Секретная фраза", okLabel = "Открыть канал", secret = true, onDone = { phrase ->
                     prompt = null
                     if (phrase != null) {
                         val id = AppGraph.p2p!!.resolveConversation(phrase)
