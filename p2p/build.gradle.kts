@@ -4,6 +4,7 @@ kotlin { jvmToolchain(17) }
 
 dependencies {
     api(project(":crypto"))
+    api(project(":mesh")) // путь канала через mesh-сеть
     api("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.10.2")
     api("com.squareup.okhttp3:okhttp:4.12.0")
     implementation("org.bouncycastle:bcprov-jdk18on:1.81")

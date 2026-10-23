@@ -266,7 +266,7 @@ private fun DialogStatus(conversationId: Long, online: Boolean) {
 private fun PeerStatus(conversationId: Long) {
     val c = colors
     val on = AppGraph.online[conversationId] == true
-    val path = if (AppGraph.direct[conversationId] == true) "напрямую" else "через сервер"
+    val path = when (AppGraph.path[conversationId]) { "direct" -> "напрямую"; "mesh" -> "через mesh"; else -> "через сервер" }
     T(if (on) "● В сети · $path" else "● Не в сети", size = 13, color = if (on) c.success else c.text3, upper = true)
 }
 

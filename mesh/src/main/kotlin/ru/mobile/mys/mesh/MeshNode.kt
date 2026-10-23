@@ -32,6 +32,8 @@ data class MeshConfig(
     val relayRate: Double = 256.0 * 1024,
     val sweepMs: Long = 5_000,
     val clock: () -> Long = System::currentTimeMillis,
+    /** Публичный узел (сервер): свой адрес wss://…/mesh — сообщается соседям в PEERS. */
+    val publicUrl: String? = null,
 )
 
 /** Токен-бакет: rate в секунду, запас — на одну секунду. */
@@ -83,6 +85,14 @@ class MeshNode(private val crypto: LinkCrypto, val config: MeshConfig = MeshConf
     private var relayed = 0L
     private var rreqForwarded = 0L
     private var sweeper: Job? = null
+    private val closed = HashMap<Int, CompletableDeferred<Unit>>()
+
+    /** Адреса публичных узлов: свой (если есть) + выученные из PEERS. */
+    @Volatile var knownUrls: List<String> = listOfNotNull(config.publicUrl)
+        private set
+
+    /** Выучены новые адреса (зовётся в контексте узла). */
+    var onPeers: ((List<String>) -> Unit)? = null
 
     internal suspend fun <T> onNode(block: suspend () -> T): T = withContext(ctx) { block() }
 
@@ -94,10 +104,28 @@ class MeshNode(private val crypto: LinkCrypto, val config: MeshConfig = MeshConf
             val id = nextId++
             links[id] = link
             rreqBuckets[id] = Bucket(config.rreqRate)
+            closed[id] = CompletableDeferred()
             scope.launch { readLoop(id, link) }
             ensureSweeper()
+            if (knownUrls.isNotEmpty()) { // поделиться адресами публичных узлов
+                sendTo(id, Packet(PEERS, bytes(ID_LEN), payload = encodePeers(knownUrls)).encode())
+            }
             id
         }
+    }
+
+    /** Подключить провод и держать, пока линк жив (менеджеры связи, серверы). */
+    suspend fun serve(wire: Wire) {
+        val id = attach(wire)
+        val done = withContext(ctx) { closed[id] } ?: return
+        done.await()
+    }
+
+    /** Добавить адреса публичных узлов (не больше 32); → новые. */
+    fun learnUrls(urls: List<String>): List<String> {
+        val fresh = urls.filter { it !in knownUrls }
+        knownUrls = (knownUrls + fresh).take(32)
+        return fresh.filter { it in knownUrls }
     }
 
     suspend fun detach(id: Int) {
@@ -161,6 +189,11 @@ class MeshNode(private val crypto: LinkCrypto, val config: MeshConfig = MeshConf
         RREQ -> onRreq(id, p)
         RREP -> onRrep(id, p)
         DATA -> onData(id, p, raw)
+        PEERS -> { // только между соседями, дальше не идёт
+            val fresh = learnUrls(decodePeers(p.payload))
+            if (fresh.isNotEmpty()) onPeers?.invoke(fresh)
+            Unit
+        }
         else -> onRerr(id, p, raw)
     }
 
@@ -237,6 +270,7 @@ class MeshNode(private val crypto: LinkCrypto, val config: MeshConfig = MeshConf
     private suspend fun dropNeighbor(id: Int) {
         val link = links.remove(id)
         rreqBuckets.remove(id)
+        closed.remove(id)?.complete(Unit)
         link?.close()
         for ((rid, r) in routes.entries.toList()) {
             if (id != r.a && id != r.b) continue

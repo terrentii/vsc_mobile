@@ -4,6 +4,7 @@ dependencies {
     implementation(project(":crypto"))
     api("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.10.2")
     implementation("org.bouncycastle:bcprov-jdk18on:1.81")
+    api("com.squareup.okhttp3:okhttp:4.12.0") // WsWire — интернет-линк к публичным узлам
     // Как в :crypto: API lazysodium; реализацию даёт платформа (android/java).
     compileOnly("com.goterl:lazysodium-java:5.1.4")
     testImplementation(project(":p2p")) // настоящий handshake поверх mesh в тестах

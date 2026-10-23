@@ -142,3 +142,27 @@ class MeshNodeTest {
         } finally { closeAll(listOf(a, r, b)) }
     }
 }
+
+class MeshPeersTest {
+    @Test fun peersRoundtripAndValidation() {
+        val body = encodePeers(listOf("wss://a.ru/mesh", "ws://127.0.0.1:5/mesh", "http://bad", "wss://x y"))
+        assertEquals(listOf("wss://a.ru/mesh", "ws://127.0.0.1:5/mesh"), decodePeers(body))
+        for (bad in listOf("ftp://x", "wss://" + "a".repeat(300), List(17) { "wss://a" }.joinToString("\n"))) {
+            assertFailsWith<MeshProtocolException> { Packet.decode(byteArrayOf(1, PEERS.toByte(), 0, 0) + ByteArray(16) + bad.toByteArray()) }
+        }
+    }
+
+    @Test fun publicNodeSharesItsUrl() = runBlocking {
+        val hub = MeshNode(crypto, MeshConfig(publicUrl = "wss://hub.example/mesh", rreqRetryMs = 200, sweepMs = 200))
+        val client = MeshNode(crypto, MeshConfig(rreqRetryMs = 200, sweepMs = 200))
+        val learned = mutableListOf<String>()
+        client.onPeers = { learned += it }
+        val (wa, wb) = MemoryWire.pair()
+        try {
+            coroutineScope { listOf(async { hub.attach(wa) }, async { client.attach(wb) }).awaitAll() }
+            withTimeout(2_000) { while (learned.isEmpty()) delay(20) }
+            assertEquals(listOf("wss://hub.example/mesh"), learned)
+            assertEquals(learned, client.knownUrls)
+        } finally { hub.close(); client.close() }
+    }
+}

@@ -5,6 +5,9 @@ const val RREQ = 1
 const val RREP = 2
 const val DATA = 3
 const val RERR = 4
+const val PEERS = 5
+const val PEERS_MAX = 16
+const val PEER_URL_MAX = 200
 const val ID_LEN = 16
 const val TAG_LEN = 32
 const val NONCE_LEN = 16
@@ -27,7 +30,7 @@ class Packet(
         val body = when (type) {
             RREQ -> tag + nonce
             RREP -> routeId + nonce
-            DATA -> payload
+            DATA, PEERS -> payload
             else -> EMPTY
         }
         return byteArrayOf(MESH_VERSION.toByte(), type.toByte(), ttl.toByte(), hops.toByte()) + id + body
@@ -65,8 +68,32 @@ class Packet(
                     if (body.isNotEmpty()) throw MeshProtocolException("RERR с телом")
                     Packet(RERR, id, 0, hops)
                 }
+                PEERS -> {
+                    decodePeers(body) // проверка формата
+                    Packet(PEERS, id, 0, hops, payload = body)
+                }
                 else -> throw MeshProtocolException("неизвестный тип")
             }
         }
     }
+}
+
+/** Адреса публичных узлов (wss://…) для PEERS: строки через \n (порт mys_mesh/packet.py). */
+fun encodePeers(urls: List<String>): ByteArray =
+    urls.filter { validUrl(it.toByteArray()) }.take(PEERS_MAX).joinToString("\n").toByteArray()
+
+fun decodePeers(body: ByteArray): List<String> {
+    if (body.isEmpty()) return emptyList()
+    val parts = mutableListOf<ByteArray>()
+    var start = 0
+    for (i in body.indices) if (body[i] == '\n'.code.toByte()) { parts += body.copyOfRange(start, i); start = i + 1 }
+    parts += body.copyOfRange(start, body.size)
+    if (parts.size > PEERS_MAX || !parts.all(::validUrl)) throw MeshProtocolException("неверный PEERS")
+    return parts.map { it.decodeToString() }
+}
+
+private fun validUrl(raw: ByteArray): Boolean {
+    if (raw.isEmpty() || raw.size > PEER_URL_MAX) return false
+    val text = runCatching { Charsets.UTF_8.newDecoder().decode(java.nio.ByteBuffer.wrap(raw)).toString() }.getOrNull() ?: return false
+    return (text.startsWith("wss://") || text.startsWith("ws://")) && ' ' !in text && text.none { it.isISOControl() }
 }

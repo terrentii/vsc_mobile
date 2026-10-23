@@ -168,6 +168,7 @@ mesh_packets = [
     MP.Packet(MP.RREP, det("rreq-id", 16), hops=1, route_id=det("route", 16), nonce=det("n2", 16)),
     MP.Packet(MP.DATA, det("route", 16), payload=b"\x00\x01mys"),
     MP.Packet(MP.RERR, det("route", 16)),
+    MP.Packet(MP.PEERS, det("peers-id", 16), payload=MP.encode_peers(["wss://soufos.ru/mesh", "ws://10.0.0.5:8000/mesh"])),
 ]
 v["mesh"] = {
     "prs": H(mesh_prs), "tag_key": H(mesh_key),
