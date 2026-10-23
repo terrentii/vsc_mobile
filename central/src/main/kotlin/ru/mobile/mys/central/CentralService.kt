@@ -11,7 +11,10 @@ import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.channels.BufferOverflow
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharedFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -23,6 +26,8 @@ sealed interface CentralEvent {
     /** synced | connected | disconnected | unauthorized */
     class State(val state: String) : CentralEvent
     class Error(val error: Throwable) : CentralEvent
+    /** room_updated / room_removed / typing / read / presence; [login] — кто (для typing/read/presence). */
+    class Room(val conversationId: Long, val kind: String, val login: String? = null) : CentralEvent
 }
 
 /** Оркестратор «Центра» — порт mys_centralized/service.py на корутинах. */
@@ -42,6 +47,16 @@ class CentralService(
     private var live: List<Job> = emptyList()
     private var knownRooms: Set<Long> = emptySet()
     private val _events = MutableSharedFlow<CentralEvent>(extraBufferCapacity = 256, onBufferOverflow = BufferOverflow.DROP_OLDEST)
+    private val _metas = MutableStateFlow<Map<Long, RoomMeta>>(emptyMap())
+    private val avatars = java.util.concurrent.ConcurrentHashMap<Pair<Long, Int>, java.util.Optional<ByteArray>>()
+    @Volatile private var ws: WsClient? = null
+
+    /** conversationId → комната глазами пользователя (диалог, название, аватар, собеседник). */
+    val metas: StateFlow<Map<Long, RoomMeta>> = _metas
+
+    fun meta(conversationId: Long): RoomMeta? = _metas.value[conversationId]
+
+    private fun putMeta(conversationId: Long, m: RoomMeta) = _metas.update { it + (conversationId to m) }
 
     val events: SharedFlow<CentralEvent> = _events
 
@@ -102,6 +117,96 @@ class CentralService(
         engine().sendFile(conversationId, filename, mimeType, data)
     suspend fun fetchMedia(messageId: Long) = engine().fetchMedia(messageId)
 
+    // -- настройки комнат, диалоги, аватарки ----------------------------------
+
+    /** Операция над комнатой беседы; null — комнаты у нас больше нет (стёрта локально). */
+    suspend fun roomOp(conversationId: Long, op: suspend RestClient.(roomId: Long) -> RoomMeta?): RoomMeta? {
+        val r = rest ?: throw IllegalStateException("нет активной сессии «Центра»")
+        val m = r.op(store.roomOf(conversationId))
+        if (m == null) {
+            forget(conversationId)
+            return null
+        }
+        syncLock.withLock { engine().rememberMeta(m) }
+        _events.tryEmit(CentralEvent.Room(conversationId, "room_updated"))
+        return m
+    }
+
+    /** Свежая мета с составом (для экрана настроек). */
+    suspend fun loadRoom(conversationId: Long): RoomMeta? = try {
+        roomOp(conversationId) { getRoom(it) }
+    } catch (e: ServerException) {
+        if (e.code == "forbidden" || e.code == "not_found") { forget(conversationId); null } else throw e
+    }
+
+    /** «Написать пользователю» → беседа (новая или уже существующая). */
+    suspend fun invite(login: String): Long {
+        val m = (rest ?: throw IllegalStateException("нет активной сессии «Центра»")).invite(login)
+        val conv = syncLock.withLock { engine().rememberMeta(m).also { engine().syncHistory(m.id) } }
+        _events.tryEmit(CentralEvent.State("synced"))
+        return conv
+    }
+
+    /** PNG аватарки глазами пользователя; кэш по (беседа, rev). */
+    suspend fun avatar(conversationId: Long): ByteArray? {
+        val rev = meta(conversationId)?.avatarRev ?: 0
+        if (rev == 0) return null
+        val key = conversationId to rev
+        avatars[key]?.let { return it.orElse(null) }
+        val bytes = rest?.getAvatar(store.roomOf(conversationId))
+        avatars[key] = java.util.Optional.ofNullable(bytes)
+        return bytes
+    }
+
+    /** «Печатает…» собеседнику (не ждёт; без соединения — пропуск). */
+    fun typing(conversationId: Long) {
+        ws?.send(org.json.JSONObject().put("type", "typing").put("room_id", store.roomOf(conversationId)))
+    }
+
+    /** Отметка прочтения до wire (не ждёт; ошибки сети — молча). */
+    fun markRead(conversationId: Long, wire: Long) {
+        val r = rest ?: return
+        scope.launch { runCatching { r.markRead(store.roomOf(conversationId), wire) } }
+    }
+
+    suspend fun privacy(): Pair<Boolean, Boolean> = (rest ?: throw IllegalStateException("нет сессии")).me()
+
+    suspend fun setPrivacy(shareRead: Boolean, shareOnline: Boolean) =
+        (rest ?: throw IllegalStateException("нет сессии")).setMe(shareRead, shareOnline)
+
+    private fun forget(conversationId: Long) {
+        store.forgetConversation(conversationId)
+        _metas.update { it - conversationId }
+        _events.tryEmit(CentralEvent.Room(conversationId, "room_removed"))
+        _events.tryEmit(CentralEvent.State("synced"))
+    }
+
+    private suspend fun refreshRoom(roomId: Long, removed: Boolean) {
+        val conv = store.conversationForRoom(roomId, null, create = false)
+        if (!removed) {
+            val m = try { rest?.getRoom(roomId) } catch (e: ServerException) { null }
+            if (m != null) {
+                val c = syncLock.withLock { engine().rememberMeta(m) }
+                _events.tryEmit(CentralEvent.Room(c, "room_updated"))
+                _events.tryEmit(CentralEvent.State("synced"))
+                return
+            }
+        }
+        conv?.let { forget(it) }
+    }
+
+    private fun peerEvent(kind: String, e: org.json.JSONObject) {
+        val conv = store.conversationForRoom(e.getLong("room_id"), null, create = false) ?: return
+        val login = e.optString("login")
+        meta(conv)?.takeIf { it.peer == login }?.let { m ->
+            when (kind) {
+                "read" -> putMeta(conv, m.copy(peerRead = maxOf(m.peerRead ?: 0, e.optLong("message_id"))))
+                "presence" -> putMeta(conv, m.copy(peerOnline = e.optBoolean("online")))
+            }
+        }
+        _events.tryEmit(CentralEvent.Room(conv, kind, login))
+    }
+
     suspend fun stop() {
         teardown()
         scope.cancel()
@@ -115,7 +220,10 @@ class CentralService(
         session = s
         Account.save(store, s)
         store.claimOwn(s.username)
-        val engine = SyncEngine(store, r, onMessage = { c, m -> _events.tryEmit(CentralEvent.Message(c, m)) }, ownUsername = s.username)
+        val engine = SyncEngine(
+            store, r, onMessage = { c, m -> _events.tryEmit(CentralEvent.Message(c, m)) }, ownUsername = s.username,
+            onRoom = { c, m -> putMeta(c, m) },
+        )
         sync = engine
         knownRooms = syncLock.withLock { engine.syncAll() }.keys
         _events.tryEmit(CentralEvent.State("synced"))
@@ -127,7 +235,8 @@ class CentralService(
 
     private suspend fun wsLoop(url: String, token: String, engine: SyncEngine) {
         try {
-            WsClient(url, token, http).events().collect { e ->
+            val client = WsClient(url, token, http).also { ws = it }
+            client.events().collect { e ->
                 when (e.optString("type")) {
                     "ready" -> {
                         // после каждого (пере)подключения добираем пропущенное за офлайн
@@ -138,6 +247,8 @@ class CentralService(
                     "message" -> syncLock.withLock { engine.ingestWs(e) }
                     "message_edited" -> syncLock.withLock { engine.applyWsEdit(e) }?.let { _events.tryEmit(CentralEvent.Message(it, 0)) }
                     "message_deleted" -> syncLock.withLock { engine.applyWsDelete(e) }?.let { _events.tryEmit(CentralEvent.Message(it, 0)) }
+                    "room_updated", "room_removed" -> refreshRoom(e.getLong("room_id"), e.optString("type") == "room_removed")
+                    "typing", "read", "presence" -> peerEvent(e.optString("type"), e)
                 }
             }
         } catch (e: AuthException) {
@@ -182,5 +293,7 @@ class CentralService(
         sync = null
         rest = null
         session = null
+        ws = null
+        _metas.value = emptyMap()
     }
 }
