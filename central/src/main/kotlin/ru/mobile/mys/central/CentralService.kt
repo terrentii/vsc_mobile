@@ -38,6 +38,8 @@ class CentralService(
         .connectTimeout(60, TimeUnit.SECONDS).readTimeout(60, TimeUnit.SECONDS)
         .pingInterval(20, TimeUnit.SECONDS).build(),
     private val roomPollMs: Long = 20_000,
+    /** Пришёл кадр /ws — телефон держит CPU, пока кадр обрабатывается. */
+    private val onWire: () -> Unit = {},
 ) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     /** Синк, live-кадры, опрос, создание/вход — по одному: иначе гонка дедупа и бесед. */
@@ -209,6 +211,22 @@ class CentralService(
         _events.tryEmit(CentralEvent.Room(conv, kind, login))
     }
 
+    /**
+     * Будильник / вернулась сеть: досинхронизировать пропущенное (новые сообщения придут
+     * событиями — и уведомлениями) и переподключить /ws, если он лежит.
+     */
+    suspend fun poke() {
+        val engine = sync ?: return
+        ws?.takeIf { !it.connected }?.kick()
+        try {
+            syncLock.withLock { engine.syncAll() }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            // нет сети — следующий будильник
+        }
+    }
+
     suspend fun stop() {
         teardown()
         scope.cancel()
@@ -249,7 +267,7 @@ class CentralService(
 
     private suspend fun wsLoop(url: String, token: String, engine: SyncEngine) {
         try {
-            val client = WsClient(url, token, http).also { ws = it }
+            val client = WsClient(url, token, http, onFrame = onWire).also { ws = it }
             client.events().collect { e ->
                 when (e.optString("type")) {
                     "ready" -> {

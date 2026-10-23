@@ -3,7 +3,8 @@ package ru.mobile.mys.central
 import kotlin.random.Random
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.channels.awaitClose
-import kotlinx.coroutines.delay
+import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.callbackFlow
 import kotlinx.coroutines.flow.flow
@@ -22,8 +23,16 @@ class WsClient(
     private val http: OkHttpClient,
     private val initialBackoffMs: Long = 500,
     private val maxBackoffMs: Long = 30_000,
+    /** На каждый входящий кадр — до разбора (телефон: не дать CPU уснуть посреди обработки). */
+    private val onFrame: () -> Unit = {},
 ) {
     @Volatile private var current: WebSocket? = null
+    private val kicks = Channel<Unit>(Channel.CONFLATED)
+
+    /** Переподключиться сейчас, не дожидаясь паузы (сеть вернулась, будильник). */
+    fun kick() { kicks.trySend(Unit) }
+
+    val connected: Boolean get() = current != null
 
     /** Отправить кадр в живое соединение (typing); нет соединения — false. */
     fun send(frame: JSONObject): Boolean = current?.send(frame.toString()) ?: false
@@ -41,7 +50,7 @@ class WsClient(
             } catch (e: Exception) {
                 // обрыв — переподключимся после паузы
             }
-            delay(backoff + Random.nextLong(0, 300))
+            withTimeoutOrNull(backoff + Random.nextLong(0, 300)) { kicks.receive() }
             backoff = minOf(backoff * 2, maxBackoffMs)
         }
     }
@@ -55,6 +64,7 @@ class WsClient(
             }
 
             override fun onMessage(webSocket: WebSocket, text: String) {
+                onFrame()
                 val o = try { JSONObject(text) } catch (e: JSONException) { close(ProtocolException("invalid ws frame")); return }
                 if (!ready) {
                     when (o.optString("type")) {
