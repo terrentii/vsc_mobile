@@ -1,8 +1,14 @@
+import java.util.Properties
+
 plugins {
     id("com.android.application")
     kotlin("android")
     kotlin("plugin.compose")
 }
+
+// Ключ подписи релизов — вне репозитория; без файла релиз собирается неподписанным.
+val signing = File(System.getProperty("user.home"), ".config/mys-android/keystore.properties")
+    .takeIf { it.exists() }?.let { f -> Properties().apply { f.inputStream().use(::load) } }
 
 android {
     namespace = "ru.mobile.mys"
@@ -20,6 +26,21 @@ android {
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
+    }
+    signingConfigs {
+        if (signing != null) create("release") {
+            storeFile = File(signing.getProperty("storeFile"))
+            storePassword = signing.getProperty("storePassword")
+            keyAlias = signing.getProperty("keyAlias")
+            keyPassword = signing.getProperty("keyPassword")
+        }
+    }
+    buildTypes {
+        release {
+            // ponytail: R8 выключен — на релизе с минификацией не проверялось (JNA/lazysodium, WebRTC рефлексия)
+            isMinifyEnabled = false
+            signingConfig = signingConfigs.findByName("release")
+        }
     }
     buildFeatures { compose = true }
     packaging { resources.excludes += "META-INF/versions/9/OSGI-INF/MANIFEST.MF" }
