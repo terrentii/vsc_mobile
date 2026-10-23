@@ -14,17 +14,17 @@ import kotlinx.coroutines.launch
 /**
  * Связь «Центра» без push-сервиса. При погасшем экране CPU засыпает: кадр /ws может
  * повиснуть необработанным, а тихо умершее соединение — не переподключиться до
- * пробуждения. Поэтому: короткий wakelock на каждый кадр, будильник раз в ~5 мин
- * (в Doze система растягивает до ~15) и досинхронизация при возврате сети.
+ * пробуждения. Поэтому: короткий wakelock на каждый кадр, будильник раз в ~15 мин
+ * (страховка от тихо умершего соединения) и досинхронизация при возврате сети.
  */
 object KeepAlive {
-    private const val INTERVAL_MS = 5 * 60_000L
+    private const val INTERVAL_MS = 15 * 60_000L // реже — дешевле; живой /ws и так приносит всё сразу
     private var lock: PowerManager.WakeLock? = null
     private var netCallback: ConnectivityManager.NetworkCallback? = null
 
     /** Не спать [ms] — успеть разобрать кадр, записать и показать уведомление. */
     @Synchronized
-    fun brief(ctx: Context, ms: Long = 10_000) {
+    fun brief(ctx: Context, ms: Long = 5_000) {
         val l = lock ?: ctx.getSystemService(PowerManager::class.java)
             .newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "mys:central").apply { setReferenceCounted(false) }
             .also { lock = it }
