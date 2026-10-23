@@ -28,8 +28,17 @@ if os.environ.get("MYS_WEBRTC") == "1":
 
     def factory():
         return WebRtcLink([])
+mesh_factory = None
+if os.environ.get("MYS_MESH") == "1":  # как в приложении: mesh через публичный узел сервера
+    from mys_mesh.internet import MeshInternet  # noqa: E402
+    from mys_mesh.node import MeshConfig, MeshNode  # noqa: E402
+
+    def mesh_factory():
+        node = MeshNode(MeshConfig())
+        return node, MeshInternet(node, lambda: [url.rsplit("/", 1)[0] + "/mesh"])
 svc = P2PService(vault, url, on_message=lambda cid, body: inbox.put(cid), connect_timeout=300.0,
-                 direct_factory=factory)
+                 direct_factory=factory, mesh_factory=mesh_factory,
+                 on_state_change=lambda cid, st: print("state", st, flush=True))
 svc.start()
 try:
     cid = svc.start_session(phrase)
