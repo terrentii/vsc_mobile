@@ -227,7 +227,19 @@ class CentralService(
             onRoom = { c, m -> putMeta(c, m) },
         )
         sync = engine
-        knownRooms = syncLock.withLock { engine.syncAll() }.keys
+        // Сеть упала на первом синке (разблокировка без связи, перезапуск сервера) — всё равно
+        // поднимаем /ws и опрос: «ready» и опрос догонят историю, иначе «Центр» молчал бы до
+        // повторной разблокировки (ни сообщений, ни уведомлений, ни «в сети»).
+        knownRooms = try {
+            syncLock.withLock { engine.syncAll() }.keys
+        } catch (e: AuthException) {
+            throw e
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            _events.tryEmit(CentralEvent.Error(e))
+            emptySet()
+        }
         _events.tryEmit(CentralEvent.State("synced"))
         live = listOfNotNull(
             wsUrlFor(s.serverUrl)?.let { url -> scope.launch { wsLoop(url, s.token, engine) } },
