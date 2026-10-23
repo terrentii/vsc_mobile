@@ -11,6 +11,8 @@ import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performTextInput
+import androidx.compose.ui.test.performScrollToIndex
+import androidx.compose.ui.test.performScrollToNode
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import androidx.test.rule.GrantPermissionRule
@@ -59,9 +61,17 @@ class DialogScreenshotTest {
         waitText("КАНАЛЫ")
         runBlocking { AppGraph.central!!.login(url!!, args.getString("centralUser")!!, args.getString("centralPassword")!!) }
         compose.onNodeWithText("ЦЕНТР").performClick()
-        waitText("bobby")
+        waitText("Избранное")
         Thread.sleep(1500)
         shot("d1-list")
+        // прокрутили вниз и обратно — кнопки «Центра» остаются квадратами
+        compose.onNode(androidx.compose.ui.test.hasScrollAction()).performScrollToIndex(10)
+        Thread.sleep(800)
+        compose.onNode(androidx.compose.ui.test.hasScrollAction()).performScrollToIndex(0)
+        Thread.sleep(800)
+        shot("d1b-collapsed-top")
+        compose.onNode(androidx.compose.ui.test.hasScrollAction())
+            .performScrollToNode(androidx.compose.ui.test.hasText("bobby"))
         compose.onAllNodesWithText("bobby")[0].performClick()
         waitText("галочки")
         Thread.sleep(1500)
