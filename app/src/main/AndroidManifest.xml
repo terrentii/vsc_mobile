@@ -5,6 +5,7 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_REMOTE_MESSAGING" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.USE_BIOMETRIC" />
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
     <!-- Mesh: Bluetooth LE и Wi-Fi Direct (геолокацию не используем) -->
     <uses-permission android:name="android.permission.BLUETOOTH" android:maxSdkVersion="30" />
     <uses-permission android:name="android.permission.BLUETOOTH_ADMIN" android:maxSdkVersion="30" />
@@ -40,5 +41,6 @@
             android:name=".MysService"
             android:exported="false"
             android:foregroundServiceType="remoteMessaging" />
+        <receiver android:name=".KeepAlive$Receiver" android:exported="false" />
     </application>
 </manifest>

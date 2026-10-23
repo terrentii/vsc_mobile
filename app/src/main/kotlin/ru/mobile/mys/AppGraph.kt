@@ -146,7 +146,7 @@ object AppGraph {
 
     fun setBackground(on: Boolean) {
         setSetting(K_BACKGROUND, if (on) "1" else "0")
-        if (on) MysService.start(app) else MysService.stop(app)
+        if (on) { MysService.start(app); KeepAlive.start(app) } else { MysService.stop(app); KeepAlive.stop(app) }
     }
 
     fun autolockMinutes() = setting(K_AUTOLOCK, "10").toInt()
@@ -191,7 +191,7 @@ object AppGraph {
             VaultP2PStore(v), rendezvousUrl(server), Ristretto(sodium),
             directLinks = { WebRtcLink(app, ice) }, mesh = node,
         )
-        val c = CentralService(VaultCentralStore(v))
+        val c = CentralService(VaultCentralStore(v), onWire = { KeepAlive.brief(app) })
         p2p = p
         central = c
         collectors = listOf(
@@ -228,7 +228,7 @@ object AppGraph {
             runCatching { c.resume() }.onFailure { errors.tryEmit(centralMessage(it)) }
             changed()
         }
-        if (backgroundEnabled()) MysService.start(app)
+        if (backgroundEnabled()) { MysService.start(app); KeepAlive.start(app) }
     }
 
     /** Закрыть всё: сервисы, vault, фон. Job — дождаться закрытия vault. */
@@ -252,6 +252,7 @@ object AppGraph {
         waiting.clear()
         path.clear()
         MysService.stop(app)
+        KeepAlive.stop(app)
         return scope.launch {
             runCatching { p?.stop() }
             runCatching { node?.close() }
