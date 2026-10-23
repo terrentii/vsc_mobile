@@ -5,6 +5,7 @@ import ru.mobile.mys.mesh.MeshConfig
 import ru.mobile.mys.mesh.MeshInternet
 import ru.mobile.mys.mesh.MeshNode
 import ru.mobile.mys.mesh.WsWire
+import ru.mobile.mys.radio.BleMesh
 import okhttp3.OkHttpClient
 import android.content.Context
 import android.os.SystemClock
@@ -58,6 +59,7 @@ object AppGraph {
     const val K_MESH_RELAY = "mesh.relay"
     const val K_MESH_NODES = "mesh.nodes"
     const val K_MESH_PEERS = "mesh.peers"
+    const val K_MESH_BLE = "mesh.ble"
 
     private lateinit var app: Context
     val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
@@ -71,6 +73,8 @@ object AppGraph {
     var mesh: MeshNode? = null
         private set
     var meshNet: MeshInternet? = null
+        private set
+    var ble: BleMesh? = null
         private set
 
     /** Растёт на любое изменение данных — экраны перечитывают vault. */
@@ -162,7 +166,20 @@ object AppGraph {
         net.start(scope)
         mesh = node
         meshNet = net
+        if (v.settings.get(K_MESH_BLE) != "0") startBle()
         return node
+    }
+
+    /** Bluetooth-mesh (в фоне, пока жив процесс); без разрешений или с выключенным BT — молча нет. */
+    fun startBle() {
+        val node = mesh ?: return
+        if (ble != null || !BleMesh.hasPermissions(app)) return
+        ble = BleMesh(app, node, scope).takeIf { runCatching { it.start() }.getOrDefault(false) }
+    }
+
+    fun setBle(on: Boolean) {
+        setSetting(K_MESH_BLE, if (on) "1" else "0")
+        if (on) startBle() else { ble?.stop(); ble = null }
     }
 
     /** Vault открыт — поднять сервисы режимов и фон. */
@@ -220,6 +237,8 @@ object AppGraph {
         val p = p2p
         val c = central
         val node = mesh
+        ble?.stop()
+        ble = null
         meshNet?.stop()
         meshNet = null
         mesh = null

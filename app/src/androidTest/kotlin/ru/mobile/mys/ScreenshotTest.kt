@@ -97,5 +97,12 @@ class ScreenshotTest {
         compose.onNodeWithText("⚙").performClick()
         waitText("НАСТРОЙКИ")
         shot("5-settings")
+        // разрешения радио — заранее, чтобы системный запрос не перекрыл экран
+        val ua = androidx.test.platform.app.InstrumentationRegistry.getInstrumentation().uiAutomation
+        (ru.mobile.mys.radio.BleMesh.permissions() + ru.mobile.mys.radio.WifiDirectMesh.permissions()).distinct()
+            .forEach { runCatching { ua.grantRuntimePermission(compose.activity.packageName, it) } }
+        compose.onNodeWithText("MESH: СОСЕДИ, BLUETOOTH, УЗЛЫ ›").performScrollTo().performClick()
+        waitText("Интернет-узлы")
+        shot("6-mesh")
     }
 }
