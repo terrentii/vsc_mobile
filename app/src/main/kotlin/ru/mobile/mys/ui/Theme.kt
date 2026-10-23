@@ -173,6 +173,8 @@ fun BrutalButton(
 fun BrutalField(
     value: String, onChange: (String) -> Unit, placeholder: String, modifier: Modifier = Modifier,
     password: Boolean = false, singleLine: Boolean = true, digits: Boolean = false, tag: String? = null,
+    /** Видимый текст, но клавиатура «как для пароля»: без подсказок и запоминания слов (секретная фраза). */
+    secret: Boolean = false,
 ) {
     val c = colors
     val source = remember { MutableInteractionSource() }
@@ -188,10 +190,11 @@ fun BrutalField(
         singleLine = singleLine,
         visualTransformation = if (password) PasswordVisualTransformation() else VisualTransformation.None,
         keyboardOptions = KeyboardOptions(keyboardType = when {
-            password -> KeyboardType.Password
+            password && digits -> KeyboardType.NumberPassword
+            password || secret -> KeyboardType.Password
             digits -> KeyboardType.Number
             else -> KeyboardType.Text
-        }),
+        }, autoCorrectEnabled = !(password || secret)),
         interactionSource = source,
         cursorBrush = SolidColor(c.accent),
         decorationBox = { inner ->
@@ -219,6 +222,16 @@ fun TopBar(
             subtitle?.invoke()
         }
         actions()
+    }
+}
+
+/** ПИН-код: цифровая клавиатура по умолчанию, «АБВ» — буквенная (старые буквенные пароли тоже вводятся). */
+@Composable
+fun PinField(value: String, onChange: (String) -> Unit, placeholder: String, modifier: Modifier = Modifier, tag: String? = null) {
+    var letters by remember { mutableStateOf(false) }
+    Row(modifier, verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        BrutalField(value, onChange, placeholder, Modifier.weight(1f), password = true, digits = !letters, tag = tag)
+        BrutalButton(if (letters) "123" else "АБВ", Modifier.widthIn(min = 72.dp)) { letters = !letters }
     }
 }
 
@@ -265,10 +278,11 @@ fun Overlay(title: String, onDismiss: () -> Unit, content: @Composable () -> Uni
 fun TextPrompt(
     title: String, placeholder: String, onDone: (String?) -> Unit,
     initial: String = "", password: Boolean = false, digits: Boolean = false, okLabel: String = "Готово",
+    secret: Boolean = false,
 ) {
     var value by remember { mutableStateOf(initial) }
     Overlay(title, onDismiss = { onDone(null) }) {
-        BrutalField(value, { value = it }, placeholder, Modifier.fillMaxWidth(), password = password, digits = digits, tag = "prompt")
+        BrutalField(value, { value = it }, placeholder, Modifier.fillMaxWidth(), password = password, digits = digits, tag = "prompt", secret = secret)
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp, Alignment.End)) {
             BrutalButton("Отмена") { onDone(null) }
             BrutalButton(okLabel, variant = Variant.Primary, enabled = value.isNotBlank()) { onDone(value) }

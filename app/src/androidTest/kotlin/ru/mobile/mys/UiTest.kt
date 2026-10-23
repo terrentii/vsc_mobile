@@ -36,7 +36,7 @@ class UiTest {
     private fun waitText(text: String, timeoutMs: Long = 30_000) =
         compose.waitUntil(timeoutMs) { compose.onAllNodesWithText(text, substring = true).fetchSemanticsNodes().isNotEmpty() }
 
-    private fun create(pw: String = "пароль-теста") {
+    private fun create(pw: String = "2468") { // ПИН из 4 цифр — минимум
         compose.onNodeWithTag("password").performTextInput(pw)
         compose.onNodeWithTag("password2").performTextInput(pw)
         compose.onNodeWithText("СОЗДАТЬ ХРАНИЛИЩЕ").performClick()
@@ -48,10 +48,10 @@ class UiTest {
     @Test fun lockThenWrongAndRightPassword() {
         create("верный-пароль")
         compose.onNodeWithText("ЗАМОК").performClick()
-        waitText("Введите мастер-пароль")
+        waitText("Введите ПИН-код")
         compose.onNodeWithTag("password").performTextInput("не-тот-пароль")
         compose.onNodeWithText("ОТКРЫТЬ").performClick()
-        waitText("Неверный пароль")
+        waitText("Неверный ПИН-код")
         Thread.sleep(2_500) // прогрессивная задержка после первой ошибки — 2 с
         compose.onNodeWithTag("password").performTextInput("верный-пароль")
         compose.onNodeWithText("ОТКРЫТЬ").performClick()
