@@ -32,7 +32,7 @@ private val AUTOLOCK_STEPS = listOf(1, 5, 10, 30, 0)
 @Composable
 fun SettingsScreen(onBack: () -> Unit) {
     val c = colors
-    val activity = LocalContext.current as FragmentActivity
+    val activity = androidx.activity.compose.LocalActivity.current as FragmentActivity
     val vault = AppGraph.vault ?: return
     val central = AppGraph.central
     val meta = File(AppGraph.vaultDir, "vault.meta")

@@ -18,6 +18,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -46,7 +47,7 @@ private const val MIN_PIN = 4
 fun UnlockScreen() {
     val c = colors
     val dir = AppGraph.vaultDir
-    val activity = LocalContext.current as FragmentActivity
+    val activity = androidx.activity.compose.LocalActivity.current as FragmentActivity
     val scope = rememberCoroutineScope()
     var creating by remember { mutableStateOf(!Vault.exists(dir)) }
     var pw by remember { mutableStateOf("") }
@@ -66,6 +67,10 @@ fun UnlockScreen() {
         }
     }
 
+    // Отпечаток включён — запрос сам при каждом показе экрана; ПИН-код остаётся запасным
+    LaunchedEffect(Unit) {
+        if (!creating && BiometricKey(dir).isEnabled()) biometricUnlock(activity) { error = it }
+    }
     // По центру, но прокручивается: в альбомной ориентации клавиатура иначе закрывает кнопку
     BoxWithConstraints(Modifier.fillMaxSize()) {
       Box(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).heightIn(min = maxHeight), contentAlignment = Alignment.Center) {
@@ -97,7 +102,10 @@ private fun unlock(creating: Boolean, pw: String, pw2: String): String? = try {
         when {
             pw.length < MIN_PIN -> "ПИН-код — не короче $MIN_PIN символов"
             pw != pw2 -> "ПИН-коды не совпадают"
-            else -> null.also { AppGraph.unlocked(Vault.create(AppGraph.vaultDir, pw.toByteArray())) }
+            else -> null.also {
+                AppGraph.unlocked(Vault.create(AppGraph.vaultDir, pw.toByteArray()))
+                AppGraph.offerBiometric = biometricAvailable()
+            }
         }
     } else {
         AppGraph.unlocked(Vault.open(AppGraph.vaultDir, pw.toByteArray()))
@@ -108,6 +116,12 @@ private fun unlock(creating: Boolean, pw: String, pw2: String): String? = try {
 } catch (e: VaultLocked) {
     "Слишком много попыток — подождите ${e.remainingMs / 1000 + 1} с"
 }
+
+/** Есть ли сильный датчик с записанными отпечатками. */
+private fun biometricAvailable(): Boolean = runCatching {
+    androidx.biometric.BiometricManager.from(AppGraph.appContext()).canAuthenticate(BIOMETRIC_STRONG) ==
+        androidx.biometric.BiometricManager.BIOMETRIC_SUCCESS
+}.getOrDefault(false)
 
 private fun biometricUnlock(activity: FragmentActivity, onError: (String) -> Unit) {
     val bio = BiometricKey(AppGraph.vaultDir)

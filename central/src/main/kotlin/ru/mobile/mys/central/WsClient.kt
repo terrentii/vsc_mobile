@@ -23,6 +23,11 @@ class WsClient(
     private val initialBackoffMs: Long = 500,
     private val maxBackoffMs: Long = 30_000,
 ) {
+    @Volatile private var current: WebSocket? = null
+
+    /** Отправить кадр в живое соединение (typing); нет соединения — false. */
+    fun send(frame: JSONObject): Boolean = current?.send(frame.toString()) ?: false
+
     /** `{"type":"ready"}` при каждом (пере)подключении, затем кадры message/message_edited/message_deleted. */
     fun events(): Flow<JSONObject> = flow {
         var backoff = initialBackoffMs
@@ -53,7 +58,7 @@ class WsClient(
                 val o = try { JSONObject(text) } catch (e: JSONException) { close(ProtocolException("invalid ws frame")); return }
                 if (!ready) {
                     when (o.optString("type")) {
-                        "ready" -> ready = true
+                        "ready" -> { ready = true; current = webSocket }
                         "error" -> { close(AuthException(o.optString("code", "unauthorized"))); return }
                         else -> { close(ProtocolException("unexpected first frame")); return }
                     }
@@ -72,6 +77,6 @@ class WsClient(
                 close(NetworkException("ws: ${t.message}", t))
             }
         })
-        awaitClose { ws.cancel() }
+        awaitClose { current = null; ws.cancel() }
     }
 }
