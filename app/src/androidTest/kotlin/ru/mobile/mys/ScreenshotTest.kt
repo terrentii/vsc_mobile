@@ -10,6 +10,7 @@ import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performTextInput
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.rule.GrantPermissionRule
@@ -47,7 +48,10 @@ class ScreenshotTest {
         File(dir, "$name.png").outputStream().use { compose.onRoot().captureToImage().asAndroidBitmap().compress(Bitmap.CompressFormat.PNG, 100, it) }
     }
 
-    private fun waitText(t: String) = compose.waitUntil(30_000) { compose.onAllNodesWithText(t, substring = true).fetchSemanticsNodes().isNotEmpty() }
+    // по таймауту — кадр того, что было на экране
+    private fun waitText(t: String) = try {
+        compose.waitUntil(30_000) { compose.onAllNodesWithText(t, substring = true).fetchSemanticsNodes().isNotEmpty() }
+    } catch (e: Throwable) { shot("timeout"); throw e }
 
     @Test fun screens() {
         val args = androidx.test.platform.app.InstrumentationRegistry.getArguments()
@@ -55,7 +59,7 @@ class ScreenshotTest {
         shot("1-unlock")
         compose.onNodeWithTag("password").performTextInput("пароль-теста")
         compose.onNodeWithTag("password2").performTextInput("пароль-теста")
-        compose.onNodeWithText("СОЗДАТЬ ХРАНИЛИЩЕ").performClick()
+        compose.onNodeWithText("СОЗДАТЬ ХРАНИЛИЩЕ").performScrollTo().performClick()
         waitText("КАНАЛЫ")
         val v = AppGraph.vault!!
         val conv = v.conversations.add(DECENTRALIZED, roomId = byteArrayOf(1), title = "Алиса")

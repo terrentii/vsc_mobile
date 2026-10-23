@@ -116,6 +116,9 @@ private val SHADOW = 4.dp
 /** Ширина переключателей настроек: правый край колонки ровный. */
 val TOGGLE_W = 104.dp
 
+/** Карточки и диалоги на планшете не растягиваются во всю ширину. */
+val MAX_CARD = 480.dp
+
 /** Высота кнопок и полей: всё в одной строке встаёт ровно. */
 val CONTROL = 48.dp
 val CONTROL_SMALL = 36.dp
@@ -243,7 +246,7 @@ fun Overlay(title: String, onDismiss: () -> Unit, content: @Composable () -> Uni
         contentAlignment = Alignment.Center,
     ) {
         Column(
-            Modifier.padding(24.dp).fillMaxWidth()
+            Modifier.padding(24.dp).widthIn(max = MAX_CARD).fillMaxWidth()
                 .graphicsLayer { val k = 0.94f + 0.06f * shown.value; scaleX = k; scaleY = k }
                 .blockShadow(c.accent, offset = 8.dp)
                 .background(c.surface).border(2.dp, c.line)

@@ -6,6 +6,8 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -13,6 +15,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.runtime.Composable
@@ -23,6 +26,8 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
@@ -38,7 +43,7 @@ private enum class Prompt { New, Join, Rename }
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
-fun MainScreen(mode: String, onMode: (String) -> Unit, onOpen: (Long) -> Unit, onSettings: () -> Unit) {
+fun MainScreen(mode: String, onMode: (String) -> Unit, onOpen: (Long) -> Unit, onSettings: () -> Unit, selected: Long? = null) {
     val c = colors
     val vault = AppGraph.vault ?: return
     val tick = AppGraph.tick.intValue
@@ -61,7 +66,7 @@ fun MainScreen(mode: String, onMode: (String) -> Unit, onOpen: (Long) -> Unit, o
                 BrutalButton("Центр", Modifier.weight(1f), if (!p2p) Variant.Primary else Variant.Default) { onMode(CENTRALIZED) }
             }
             if (!p2p && central?.session == null) {
-                LoginForm()
+                Column(Modifier.weight(1f).verticalScroll(rememberScrollState())) { LoginForm() }
                 return@Column
             }
             Row(Modifier.fillMaxWidth().padding(start = 16.dp, end = 16.dp, top = 16.dp, bottom = 8.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -73,6 +78,7 @@ fun MainScreen(mode: String, onMode: (String) -> Unit, onOpen: (Long) -> Unit, o
                 items(convs, key = { it.id }) { conv ->
                     Row(
                         Modifier.animateItem().fillMaxWidth()
+                            .then(if (conv.id == selected) Modifier.background(c.accentSoft).drawBehind { drawRect(c.accent, size = Size(4.dp.toPx(), size.height)) } else Modifier)
                             .combinedClickable(onClick = { onOpen(conv.id) }, onLongClick = { menuFor = conv })
                             .padding(horizontal = 16.dp, vertical = 14.dp),
                         verticalAlignment = Alignment.CenterVertically,
@@ -174,7 +180,7 @@ private fun LoginForm() {
         }
     }
 
-    Column(Modifier.fillMaxWidth().padding(16.dp).blockShadow(c.line).background(c.surface).border(2.dp, c.line).padding(18.dp),
+    Column(Modifier.padding(16.dp).widthIn(max = MAX_CARD).fillMaxWidth().blockShadow(c.line).background(c.surface).border(2.dp, c.line).padding(18.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp)) {
         T("Вход в «Центр»", size = 20, bold = true, upper = true)
         T("Аккаунт на сервере: комнаты синхронизируются с вебом и десктопом.", color = c.text2)

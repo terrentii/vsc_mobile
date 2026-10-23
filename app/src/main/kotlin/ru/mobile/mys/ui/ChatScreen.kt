@@ -65,7 +65,7 @@ private val TIME = DateTimeFormatter.ofPattern("HH:mm").withZone(ZoneId.systemDe
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
-fun ChatScreen(conversationId: Long, mode: String, onBack: () -> Unit) {
+fun ChatScreen(conversationId: Long, mode: String, onBack: (() -> Unit)?) {
     val c = colors
     val vault = AppGraph.vault ?: return
     val ctx = LocalContext.current
