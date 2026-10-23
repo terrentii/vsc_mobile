@@ -30,8 +30,8 @@ sealed interface P2PEvent {
     class Message(val conversationId: Long, val messageId: Long) : P2PEvent
     class State(val conversationId: Long, val connected: Boolean) : P2PEvent
     class Error(val conversationId: Long?, val error: Throwable) : P2PEvent
-    /** Путь канала сменился: прямой (WebRTC) или через сервер. */
-    class Path(val conversationId: Long, val direct: Boolean) : P2PEvent
+    /** Путь канала сменился: прямой (WebRTC), через сервер или через mesh-сеть. */
+    class Path(val conversationId: Long, val direct: Boolean, val mesh: Boolean = false) : P2PEvent
 }
 
 /**
@@ -48,6 +48,8 @@ class P2PService(
     private val handshakeTimeoutMs: Long = 120_000,
     /** Фабрика прямого канала; null — только relay. */
     private val directLinks: (() -> DirectLink)? = null,
+    /** Mesh-узел (связь с узлами — у вызывающего); null — канал только через сервер. */
+    private val mesh: ru.mobile.mys.mesh.MeshNode? = null,
 ) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val sessions = ConcurrentHashMap<Long, Session>()
@@ -107,28 +109,30 @@ class P2PService(
 
     private suspend fun connect(id: Long, roomId: ByteArray, prs: ByteArray, timeoutMs: Long) {
         if (sessions.containsKey(id)) return // канал уже поднят
-        var joined: Rendezvous? = null
+        var transport: Transport? = null
         try {
-            val rv = joinRendezvous(http, rendezvousUrl, roomId, timeoutMs).also { joined = it }
-            val transport = RelayTransport(rv.ws)
-            val result = withTimeoutOrNull(handshakeTimeoutMs) { handshake(transport, prs, rv.role, ristretto) }
+            val p = pair(http, rendezvousUrl, mesh, roomId, prs, timeoutMs)
+            transport = p.transport
+            val result = withTimeoutOrNull(handshakeTimeoutMs) { handshake(p.transport, prs, p.role, ristretto) }
                 ?: throw PakeException("собеседник не завершил хендшейк")
-            val link = directLinks?.invoke()
+            // прямой WebRTC сигналит через relay-сервер — поверх mesh его не поднимаем
+            val link = if (p.mesh) null else directLinks?.invoke()
             val session = openSession(
-                store.session(id), transport, result.sk, result.ratchetState,
+                store.session(id), p.transport, result.sk, result.ratchetState,
                 onMessage = { mid -> _events.tryEmit(P2PEvent.Message(id, mid)) },
                 onDisconnect = { onDisconnect(id) },
                 onSignal = { json -> link?.onSignal(json) },
                 onDirectClosed = { _events.tryEmit(P2PEvent.Path(id, false)) },
             )
             sessions[id] = session
-            roles[id] = rv.role
-            if (link != null) startDirect(id, session, rv.role, link)
+            roles[id] = p.role
+            if (link != null) startDirect(id, session, p.role, link)
             session.start(scope)
-            if (rv.role == Role.INITIATOR) runCatching { session.sendPrime() } // best-effort
+            if (p.role == Role.INITIATOR) runCatching { session.sendPrime() } // best-effort
             _events.tryEmit(P2PEvent.State(id, true))
+            if (p.mesh) _events.tryEmit(P2PEvent.Path(id, direct = false, mesh = true))
         } catch (e: Exception) {
-            joined?.ws?.close()
+            runCatching { transport?.close() }
             if (e !is CancellationException) _events.tryEmit(P2PEvent.Error(id, e))
             throw e
         }

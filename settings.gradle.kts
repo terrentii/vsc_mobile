@@ -6,4 +6,4 @@ dependencyResolutionManagement {
     repositories { google(); mavenCentral() }
 }
 rootProject.name = "mys"
-include(":app", ":crypto", ":p2p", ":central")
+include(":app", ":crypto", ":p2p", ":central", ":mesh")

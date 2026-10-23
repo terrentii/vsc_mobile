@@ -30,7 +30,7 @@ import ru.mobile.mys.storage.WrongPassword
 private val AUTOLOCK_STEPS = listOf(1, 5, 10, 30, 0)
 
 @Composable
-fun SettingsScreen(onBack: () -> Unit) {
+fun SettingsScreen(onBack: () -> Unit, onMesh: () -> Unit = {}) {
     val c = colors
     val activity = androidx.activity.compose.LocalActivity.current as FragmentActivity
     val vault = AppGraph.vault ?: return
@@ -79,6 +79,9 @@ fun SettingsScreen(onBack: () -> Unit) {
                 AppGraph.setSetting(AppGraph.K_SERVER, server.trim().trimEnd('/'))
                 note = "Адрес сохранён — P2P подхватит его после повторной разблокировки"
             }
+
+            Section("Mesh-сеть")
+            BrutalButton("Mesh: соседи, Bluetooth, узлы ›", Modifier.fillMaxWidth()) { onMesh() }
 
             Section("«Центр»")
             Toggle("Стирать историю при выходе из аккаунта", wipe) { wipe = it; central?.setWipeOnLogout(it) }

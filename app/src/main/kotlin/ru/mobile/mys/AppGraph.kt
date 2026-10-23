@@ -1,5 +1,12 @@
 package ru.mobile.mys
 
+import ru.mobile.mys.mesh.LinkCrypto
+import ru.mobile.mys.mesh.MeshConfig
+import ru.mobile.mys.mesh.MeshInternet
+import ru.mobile.mys.mesh.MeshNode
+import ru.mobile.mys.mesh.WsWire
+import ru.mobile.mys.radio.BleMesh
+import okhttp3.OkHttpClient
 import android.content.Context
 import android.os.SystemClock
 import androidx.compose.runtime.getValue
@@ -47,6 +54,12 @@ object AppGraph {
     const val K_BACKGROUND = "app.background"
     const val K_AUTOLOCK = "app.autolock_min"
     const val P2P_WAIT_MS = 5 * 60_000L
+    // Ключи mesh — как у десктопа (mys_mesh/prefs.py).
+    const val K_MESH = "mesh.enabled"
+    const val K_MESH_RELAY = "mesh.relay"
+    const val K_MESH_NODES = "mesh.nodes"
+    const val K_MESH_PEERS = "mesh.peers"
+    const val K_MESH_BLE = "mesh.ble"
 
     private lateinit var app: Context
     val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
@@ -57,6 +70,12 @@ object AppGraph {
         private set
     var central: CentralService? = null
         private set
+    var mesh: MeshNode? = null
+        private set
+    var meshNet: MeshInternet? = null
+        private set
+    var ble: BleMesh? = null
+        private set
 
     /** Растёт на любое изменение данных — экраны перечитывают vault. */
     val tick = mutableIntStateOf(0)
@@ -64,8 +83,8 @@ object AppGraph {
     /** P2P: беседы с живым каналом и сроки ожидания пира (epoch ms). */
     val online = mutableStateMapOf<Long, Boolean>()
     val waiting = mutableStateMapOf<Long, Long>()
-    /** P2P: канал идёт напрямую (WebRTC), а не через сервер. */
-    val direct = mutableStateMapOf<Long, Boolean>()
+    /** P2P: путь живого канала — "direct" (WebRTC) или "mesh"; нет записи — через сервер. */
+    val path = mutableStateMapOf<Long, String>()
     /** «Центр», диалог: собеседник печатает — до этого момента (epoch ms). */
     val typing = mutableStateMapOf<Long, Long>()
     /** Хранилище только что создано — предложить вход по отпечатку (один раз). */
@@ -132,13 +151,45 @@ object AppGraph {
 
     fun autolockMinutes() = setting(K_AUTOLOCK, "10").toInt()
 
+    /** Стартовые узлы: публичный узел нашего сервера + свои из настроек. */
+    fun meshBootstrap(server: String = serverUrl()): List<String> =
+        listOf(rendezvousUrl(server).removeSuffix("/p2p") + "/mesh") +
+            setting(K_MESH_NODES, "").lines().map { it.trim() }.filter { it.startsWith("wss://") || it.startsWith("ws://") }
+
+    /** Mesh-узел + интернет-связь с публичными узлами; выученные адреса — в vault. */
+    private fun startMesh(v: Vault, server: String): MeshNode {
+        val node = MeshNode(LinkCrypto(sodium, sodium), MeshConfig(relay = v.settings.get(K_MESH_RELAY) != "0"))
+        node.learnUrls(v.settings.get(K_MESH_PEERS).orEmpty().lines().filter { it.isNotBlank() })
+        node.onPeers = { runCatching { v.settings.set(K_MESH_PEERS, node.knownUrls.joinToString("\n")) } }
+        val http = OkHttpClient()
+        val net = MeshInternet(node, { meshBootstrap(server) }, { WsWire.connect(http, it) })
+        net.start(scope)
+        mesh = node
+        meshNet = net
+        if (v.settings.get(K_MESH_BLE) != "0") startBle()
+        return node
+    }
+
+    /** Bluetooth-mesh (в фоне, пока жив процесс); без разрешений или с выключенным BT — молча нет. */
+    fun startBle() {
+        val node = mesh ?: return
+        if (ble != null || !BleMesh.hasPermissions(app)) return
+        ble = BleMesh(app, node, scope).takeIf { runCatching { it.start() }.getOrDefault(false) }
+    }
+
+    fun setBle(on: Boolean) {
+        setSetting(K_MESH_BLE, if (on) "1" else "0")
+        if (on) startBle() else { ble?.stop(); ble = null }
+    }
+
     /** Vault открыт — поднять сервисы режимов и фон. */
     fun unlocked(v: Vault) {
         val server = v.settings.get(K_SERVER) ?: DEFAULT_SERVER
         val ice = iceServers(server)
+        val node = if (v.settings.get(K_MESH) != "0") startMesh(v, server) else null
         val p = P2PService(
             VaultP2PStore(v), rendezvousUrl(server), Ristretto(sodium),
-            directLinks = { WebRtcLink(app, ice) },
+            directLinks = { WebRtcLink(app, ice) }, mesh = node,
         )
         val c = CentralService(VaultCentralStore(v))
         p2p = p
@@ -149,9 +200,13 @@ object AppGraph {
                     when (e) {
                         is P2PEvent.State -> {
                             online[e.conversationId] = e.connected
-                            if (!e.connected) direct.remove(e.conversationId)
+                            if (!e.connected) path.remove(e.conversationId)
                         }
-                        is P2PEvent.Path -> direct[e.conversationId] = e.direct
+                        is P2PEvent.Path -> when {
+                            e.mesh -> path[e.conversationId] = "mesh"
+                            e.direct -> path[e.conversationId] = "direct"
+                            else -> path.remove(e.conversationId)
+                        }
                         is P2PEvent.Error -> errors.tryEmit(p2pMessage(e.error))
                         is P2PEvent.Message -> notifyIfBackground()
                     }
@@ -181,6 +236,12 @@ object AppGraph {
         val v = vault ?: return null
         val p = p2p
         val c = central
+        val node = mesh
+        ble?.stop()
+        ble = null
+        meshNet?.stop()
+        meshNet = null
+        mesh = null
         collectors.forEach { it.cancel() }
         connectJobs.values.forEach { it.cancel() }
         connectJobs.clear()
@@ -189,10 +250,11 @@ object AppGraph {
         vault = null
         online.clear()
         waiting.clear()
-        direct.clear()
+        path.clear()
         MysService.stop(app)
         return scope.launch {
             runCatching { p?.stop() }
+            runCatching { node?.close() }
             runCatching { c?.stop() }
             v.close()
         }

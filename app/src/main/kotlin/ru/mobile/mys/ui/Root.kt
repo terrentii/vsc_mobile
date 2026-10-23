@@ -51,6 +51,7 @@ private sealed interface Screen {
     data object Main : Screen
     data class Chat(val conversationId: Long, val mode: String) : Screen
     data object Settings : Screen
+    data object Mesh : Screen
     data class RoomSettings(val conversationId: Long) : Screen
 }
 
@@ -67,7 +68,11 @@ private fun Unlocked() {
     var screen by remember { mutableStateOf<Screen>(Screen.Main) }
     var mode by rememberSaveable { mutableStateOf(DECENTRALIZED) }
     BackHandler(screen != Screen.Main) {
-        screen = (screen as? Screen.RoomSettings)?.let { Screen.Chat(it.conversationId, mode) } ?: Screen.Main
+        screen = when (val s = screen) {
+            is Screen.RoomSettings -> Screen.Chat(s.conversationId, mode)
+            Screen.Mesh -> Screen.Settings
+            else -> Screen.Main
+        }
     }
     BiometricOffer()
     val notify = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) {}
@@ -86,7 +91,8 @@ private fun Unlocked() {
                     Screen.Main -> EmptyPane()
                     is Screen.Chat -> ChatScreen(s.conversationId, s.mode, onBack = null,
                         onRoomSettings = { screen = Screen.RoomSettings(s.conversationId) })
-                    Screen.Settings -> SettingsScreen(onBack = { screen = Screen.Main })
+                    Screen.Settings -> SettingsScreen(onBack = { screen = Screen.Main }, onMesh = { screen = Screen.Mesh })
+                    Screen.Mesh -> MeshScreen(onBack = { screen = Screen.Settings })
                     is Screen.RoomSettings -> RoomSettingsScreen(s.conversationId,
                         onBack = { screen = Screen.Chat(s.conversationId, mode) }, onGone = { screen = Screen.Main })
                 }
@@ -105,7 +111,8 @@ private fun Unlocked() {
             onSettings = { screen = Screen.Settings }, onRoomSettings = { screen = Screen.RoomSettings(it) })
         is Screen.Chat -> ChatScreen(s.conversationId, s.mode, onBack = { screen = Screen.Main },
             onRoomSettings = { screen = Screen.RoomSettings(s.conversationId) })
-        Screen.Settings -> SettingsScreen(onBack = { screen = Screen.Main })
+        Screen.Settings -> SettingsScreen(onBack = { screen = Screen.Main }, onMesh = { screen = Screen.Mesh })
+        Screen.Mesh -> MeshScreen(onBack = { screen = Screen.Settings })
         is Screen.RoomSettings -> RoomSettingsScreen(s.conversationId,
             onBack = { screen = Screen.Chat(s.conversationId, mode) }, onGone = { screen = Screen.Main })
     } }
