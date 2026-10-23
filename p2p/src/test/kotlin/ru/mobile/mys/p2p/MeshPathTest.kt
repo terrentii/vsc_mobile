@@ -70,4 +70,12 @@ class MeshPathTest {
         scope.cancel()
         assertEquals(1, calls) // следующая попытка — не раньше чем через 2 с
     }
+
+    @Test fun meshSearchTimeoutIsOrdinaryFailure() = runBlocking {
+        val lonely = MeshNode(crypto, fast())
+        try {
+            val e = runCatching { pair(OkHttpClient(), "ws://127.0.0.1:1/p2p", lonely, ByteArray(32), ByteArray(32), 1_000) }.exceptionOrNull()
+            assertTrue(e != null && e !is kotlinx.coroutines.CancellationException, "ошибка сервера, а не отмена: $e")
+        } finally { lonely.close() }
+    }
 }

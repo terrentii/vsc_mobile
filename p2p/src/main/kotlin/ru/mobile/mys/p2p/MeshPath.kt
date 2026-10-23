@@ -10,7 +10,8 @@ import ru.mobile.mys.mesh.MeshNode
 import ru.mobile.mys.mesh.MeshTransport
 import ru.mobile.mys.mesh.tagKey
 
-const val MESH_GRACE_MS = 3_000L
+/** Mesh нашёл собеседника, а сервер ещё не свёл пару — столько ждём сервер (он в приоритете). */
+const val MESH_GRACE_MS = 20_000L
 
 /** Канал через mesh: транспорт сессии поверх маршрута. */
 class MeshPathTransport(private val t: MeshTransport) : Transport {
@@ -28,7 +29,8 @@ class Paired(val role: Role, val transport: Transport, val mesh: Boolean, val re
 /**
  * Рандеву через сервер и поиск через mesh параллельно (порт mesh_path.pair).
  * Пару от сервера оба получают почти одновременно — сервер в приоритете: mesh нашёл
- * первым — ждём сервер ещё [graceMs]; сервер недоступен — сразу mesh.
+ * первым — ждём сервер ещё [graceMs] (медленный сервер не уводит канал в mesh);
+ * сервер недоступен — сразу mesh.
  */
 suspend fun pair(
     http: OkHttpClient, url: String, mesh: MeshNode?, roomId: ByteArray, prs: ByteArray,
@@ -51,12 +53,12 @@ suspend fun pair(
                     meshResult?.second?.close() // проигравший маршрут — закрыть
                     return@supervisorScope Paired(rv.role, RelayTransport(rv.ws), false, rv)
                 }
-                r.exceptionOrNull()?.let { if (it is CancellationException) throw it; errors += it; serverFailed = true }
+                r.exceptionOrNull()?.let { if (it.isOwnCancel()) throw it; errors += it; serverFailed = true }
             }
             if (meshResult == null && !meshFailed && found.isCompleted) {
                 val r = runCatching { found.await() }
                 r.getOrNull()?.let { meshResult = it; deadline = System.currentTimeMillis() + graceMs }
-                r.exceptionOrNull()?.let { if (it is CancellationException) throw it; errors += it; meshFailed = true }
+                r.exceptionOrNull()?.let { if (it.isOwnCancel()) throw it; errors += it; meshFailed = true }
             }
             val m = meshResult
             if (m != null && (serverFailed || System.currentTimeMillis() >= deadline)) {
@@ -72,3 +74,6 @@ suspend fun pair(
         found.cancel()
     }
 }
+
+/** Отмена снаружи — пробросить; таймаут поиска/рандеву — обычная неудача этого пути. */
+private fun Throwable.isOwnCancel() = this is CancellationException && this !is kotlinx.coroutines.TimeoutCancellationException

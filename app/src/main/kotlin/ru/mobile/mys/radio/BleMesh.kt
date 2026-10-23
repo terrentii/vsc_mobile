@@ -114,7 +114,8 @@ class BleMesh(private val ctx: Context, private val node: MeshNode, private val 
 
         open fun shut() { inbox.close() }
 
-        protected fun pieces(frame: ByteArray) = chunk(frame, mtu - 3)
+        // значение атрибута GATT — не больше 512 байт, даже при MTU 517
+        protected fun pieces(frame: ByteArray) = chunk(frame, minOf(mtu - 3, 512))
     }
 
     // -- мы сервер: сосед пишет в RX, мы шлём уведомления TX
