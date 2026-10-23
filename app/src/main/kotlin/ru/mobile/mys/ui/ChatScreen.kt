@@ -120,7 +120,7 @@ fun ChatScreen(conversationId: Long, mode: String, onBack: () -> Unit) {
 
             LazyColumn(Modifier.weight(1f).fillMaxWidth().padding(horizontal = 12.dp), state = list, verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 items(messages, key = { it.id }) { m ->
-                    MessageRow(m, p2p, Modifier.combinedClickable(onClick = {}, onLongClick = { menuFor = m }))
+                    MessageRow(m, p2p, title, Modifier.combinedClickable(onClick = {}, onLongClick = { menuFor = m }))
                 }
             }
 
@@ -198,7 +198,7 @@ private fun ConnectBar(conversationId: Long) {
 }
 
 @Composable
-private fun MessageRow(m: Message, p2p: Boolean, modifier: Modifier) {
+private fun MessageRow(m: Message, p2p: Boolean, peerName: String, modifier: Modifier) {
     val c = colors
     val out = m.direction == "out"
     Box(Modifier.fillMaxWidth(), contentAlignment = if (out) Alignment.CenterEnd else Alignment.CenterStart) {
@@ -207,7 +207,8 @@ private fun MessageRow(m: Message, p2p: Boolean, modifier: Modifier) {
                 .background(if (out) c.accentSoft else c.bubbleThem).border(2.dp, c.line).padding(10.dp),
             verticalArrangement = Arrangement.spacedBy(4.dp),
         ) {
-            val author = if (out) "Вы" else if (p2p) "Собеседник" else m.sender ?: "?"
+            // P2P: название канала, если его переименовали, иначе «Собеседник»
+            val author = if (out) "Вы" else if (p2p) peerName.ifEmpty { "Собеседник" } else m.sender ?: "?"
             val time = (m.sentAt ?: m.receivedAt)?.let { TIME.format(Instant.ofEpochMilli(it)) } ?: ""
             val status = when (m.status) { "pending" -> " · …"; "failed" -> " · не отправлено"; else -> "" }
             Row {
