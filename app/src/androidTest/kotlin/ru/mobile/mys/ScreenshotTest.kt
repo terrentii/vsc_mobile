@@ -9,6 +9,8 @@ import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.onRoot
+import androidx.compose.ui.test.hasScrollAction
+import androidx.compose.ui.test.performScrollToIndex
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performTextInput
@@ -67,9 +69,14 @@ class ScreenshotTest {
         v.messages.add(conv, "in", "Привет! Это канал МЫС.".toByteArray(), "received")
         v.messages.add(conv, "out", "Привет, вижу тебя".toByteArray(), "sent")
         v.messages.add(conv, "out", "А это ещё в пути".toByteArray(), "pending")
+        v.conversations.setPinned(conv, true)
+        for (i in 1..12) v.conversations.add(DECENTRALIZED, roomId = byteArrayOf((10 + i).toByte()), title = "Канал №$i")
         AppGraph.changed()
         waitText("Алиса")
         shot("2-channels")
+        compose.onNode(hasScrollAction()).performScrollToIndex(12)
+        shot("2b-channels-scrolled")
+        compose.onNode(hasScrollAction()).performScrollToIndex(0)
         compose.onNodeWithText("Алиса").performClick()
         waitText("Это канал")
         shot("3-chat")

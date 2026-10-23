@@ -107,6 +107,21 @@ class VaultTest {
         }
     }
 
+    @Test fun pinnedAndLastMessage() {
+        create().use { v ->
+            val a = v.conversations.add("centralized", title = "A")
+            val b = v.conversations.add("centralized", title = "B")
+            v.messages.add(a, "out", "раз".toByteArray(), "sent")
+            v.messages.add(a, "in", "два".toByteArray(), "received")
+            v.conversations.setPinned(b, true)
+            assertEquals(listOf(false, true), v.conversations.list("centralized").map { it.pinned })
+            val last = v.messages.lastByConversation("centralized")
+            assertEquals("два", last[a]?.body?.decodeToString())
+            assertFalse(b in last)
+            assertTrue(v.messages.lastByConversation("decentralized").isEmpty())
+        }
+    }
+
     @Test fun settingsDeletePrefix() {
         create().use { v ->
             v.settings.set("central.cursor.1", "5")

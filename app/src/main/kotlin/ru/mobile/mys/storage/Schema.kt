@@ -27,6 +27,8 @@ internal val MIGRATIONS: List<List<String>> = listOf(
             " conversation_id INTEGER PRIMARY KEY REFERENCES conversations(id)," +
             " state_blob BLOB NOT NULL, updated_at INTEGER NOT NULL)",
     ),
+    // v2: закрепление — только на этом телефоне, с сервером и десктопом не синхронизируется
+    listOf("ALTER TABLE conversations ADD COLUMN pinned INTEGER NOT NULL DEFAULT 0"),
 )
 
 internal fun migrate(db: SQLiteDatabase) {

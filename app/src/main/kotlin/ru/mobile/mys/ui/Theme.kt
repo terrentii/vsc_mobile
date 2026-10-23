@@ -165,7 +165,7 @@ fun BrutalButton(
     ) {
         // одиночный знак («+», «→», «⚙») — значок, ему нужен крупный кегль
         val icon = text.length == 1
-        T(text, size = if (icon) (if (small) 18 else 22) else if (small) 13 else 15, color = fgA, bold = true, upper = !icon)
+        T(text, size = if (icon) (if (small) 18 else 22) else if (small) 13 else 15, color = fgA, bold = true, upper = !icon, maxLines = 1)
     }
 }
 
