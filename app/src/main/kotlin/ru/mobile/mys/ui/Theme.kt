@@ -160,7 +160,8 @@ fun BrutalButton(
             .background(faceA)
             .border(2.dp, if (enabled) border else c.border2)
             .clickable(source, indication = null, enabled = enabled, onClick = onClick)
-            .padding(horizontal = if (small) 10.dp else 16.dp, vertical = 6.dp),
+            // значок в квадрате: широкому «@» иначе не хватало места и он становился «…»
+            .padding(horizontal = if (text.length == 1) 4.dp else if (small) 10.dp else 16.dp, vertical = 6.dp),
         contentAlignment = Alignment.Center,
     ) {
         // одиночный знак («+», «→», «⚙») — значок, ему нужен крупный кегль

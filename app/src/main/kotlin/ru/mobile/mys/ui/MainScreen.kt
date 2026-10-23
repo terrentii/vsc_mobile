@@ -133,7 +133,11 @@ fun MainScreen(
                     }
                 }
                 // При прокрутке кнопки сворачиваются в квадраты в правом нижнем углу
-                Actions(p2p, collapsed = list.canScrollBackward, Modifier.align(Alignment.BottomEnd),
+                // «Центр»: свернулись при первой прокрутке — так и остаются (три широкие кнопки мешают списку)
+                var stayCollapsed by remember(mode) { mutableStateOf(false) }
+                val scrolled = list.canScrollBackward
+                LaunchedEffect(scrolled) { if (scrolled && !p2p) stayCollapsed = true }
+                Actions(p2p, collapsed = scrolled || stayCollapsed, Modifier.align(Alignment.BottomEnd),
                     onNew = { prompt = Prompt.New }, onJoin = { prompt = Prompt.Join }, onWrite = { prompt = Prompt.Write })
             }
         }
