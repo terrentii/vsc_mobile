@@ -26,6 +26,8 @@ class VaultCentralStore(private val vault: Vault) : CentralStore {
         m.wireSeq, m.clientMsgId, m.mediaRef, m.replyAuthor, m.replySnippet, m.timestamp,
     )
 
+    override fun claimOwn(username: String) = vault.messages.claimOwn(MODE, username)
+
     override fun get(messageId: Long) = vault.messages.get(messageId)?.stored()
     override fun findByWire(conversationId: Long, wireSeq: Long) = vault.messages.findByWire(conversationId, wireSeq)?.stored()
     override fun findOutByClientId(conversationId: Long, clientMsgId: String) = vault.messages.findOutByClientId(conversationId, clientMsgId)?.stored()

@@ -8,7 +8,7 @@ import ru.mobile.mys.crypto.serializeState
 
 class Conversation(
     val id: Long, val mode: String, val roomId: ByteArray?, val title: String?,
-    val createdAt: Long, val p2pPrs: ByteArray?,
+    val createdAt: Long, val p2pPrs: ByteArray?, val pinned: Boolean = false,
 )
 
 /** [body] null — входящее вложение «Центра», ещё не докачанное. */
@@ -35,8 +35,8 @@ class SettingsRepo internal constructor(private val db: SQLiteDatabase) {
 }
 
 class ConversationsRepo internal constructor(private val db: SQLiteDatabase) {
-    private val cols = "SELECT id, mode, room_id, title, created_at, p2p_prs FROM conversations"
-    private fun row(c: Cursor) = Conversation(c.getLong(0), c.getString(1), c.blobOrNull(2), c.stringOrNull(3), c.getLong(4), c.blobOrNull(5))
+    private val cols = "SELECT id, mode, room_id, title, created_at, p2p_prs, pinned FROM conversations"
+    private fun row(c: Cursor) = Conversation(c.getLong(0), c.getString(1), c.blobOrNull(2), c.stringOrNull(3), c.getLong(4), c.blobOrNull(5), c.getInt(6) != 0)
 
     fun add(mode: String, roomId: ByteArray? = null, title: String? = null): Long = db.insertRow(
         "conversations", "mode" to mode, "room_id" to roomId, "title" to title,
@@ -53,6 +53,8 @@ class ConversationsRepo internal constructor(private val db: SQLiteDatabase) {
         else db.select("$cols WHERE mode=? ORDER BY id", mode) { row(it) }
 
     fun setPrs(id: Long, prs: ByteArray) = db.execSQL("UPDATE conversations SET p2p_prs=? WHERE id=?", arrayOf(prs, id))
+
+    fun setPinned(id: Long, pinned: Boolean) = db.execSQL("UPDATE conversations SET pinned=? WHERE id=?", arrayOf(if (pinned) 1 else 0, id))
 
     fun rename(id: Long, title: String) = db.execSQL("UPDATE conversations SET title=? WHERE id=?", arrayOf(title, id))
 
@@ -93,6 +95,18 @@ class MessagesRepo internal constructor(private val db: SQLiteDatabase) {
     fun get(id: Long): Message? = db.select("$cols WHERE id=?", id) { row(it) }.firstOrNull()
 
     fun list(conversationId: Long): List<Message> = db.select("$cols WHERE conversation_id=? ORDER BY id", conversationId) { row(it) }
+
+    /** Последнее сообщение каждой беседы режима: conversation_id → сообщение (для превью в списке). */
+    fun lastByConversation(mode: String): Map<Long, Message> = db.select(
+        "$cols WHERE id IN (SELECT MAX(m.id) FROM messages m JOIN conversations c ON c.id = m.conversation_id" +
+            " WHERE c.mode=? GROUP BY m.conversation_id)", mode,
+    ) { row(it) }.associateBy { it.conversationId }
+
+    fun claimOwn(mode: String, sender: String) = db.execSQL(
+        "UPDATE messages SET direction='out', status='sent', sent_at=COALESCE(sent_at, received_at)" +
+            " WHERE direction='in' AND sender=? AND conversation_id IN (SELECT id FROM conversations WHERE mode=?)",
+        arrayOf(sender, mode),
+    )
 
     fun setStatus(id: Long, status: String) = db.execSQL("UPDATE messages SET status=? WHERE id=?", arrayOf(status, id))
 

@@ -9,7 +9,10 @@ import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.onRoot
+import androidx.compose.ui.test.hasScrollAction
+import androidx.compose.ui.test.performScrollToIndex
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performTextInput
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.rule.GrantPermissionRule
@@ -47,7 +50,14 @@ class ScreenshotTest {
         File(dir, "$name.png").outputStream().use { compose.onRoot().captureToImage().asAndroidBitmap().compress(Bitmap.CompressFormat.PNG, 100, it) }
     }
 
-    private fun waitText(t: String) = compose.waitUntil(30_000) { compose.onAllNodesWithText(t, substring = true).fetchSemanticsNodes().isNotEmpty() }
+    // по таймауту — кадр того, что было на экране
+    private fun png(w: Int, h: Int, color: Int): ByteArray = java.io.ByteArrayOutputStream().also {
+        Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888).apply { eraseColor(color) }.compress(Bitmap.CompressFormat.PNG, 100, it)
+    }.toByteArray()
+
+    private fun waitText(t: String) = try {
+        compose.waitUntil(30_000) { compose.onAllNodesWithText(t, substring = true).fetchSemanticsNodes().isNotEmpty() }
+    } catch (e: Throwable) { shot("timeout"); throw e }
 
     @Test fun screens() {
         val args = androidx.test.platform.app.InstrumentationRegistry.getArguments()
@@ -55,7 +65,7 @@ class ScreenshotTest {
         shot("1-unlock")
         compose.onNodeWithTag("password").performTextInput("пароль-теста")
         compose.onNodeWithTag("password2").performTextInput("пароль-теста")
-        compose.onNodeWithText("СОЗДАТЬ ХРАНИЛИЩЕ").performClick()
+        compose.onNodeWithText("СОЗДАТЬ ХРАНИЛИЩЕ").performScrollTo().performClick()
         waitText("КАНАЛЫ")
         val v = AppGraph.vault!!
         val conv = v.conversations.add(DECENTRALIZED, roomId = byteArrayOf(1), title = "Алиса")
@@ -63,12 +73,22 @@ class ScreenshotTest {
         v.messages.add(conv, "in", "Привет! Это канал МЫС.".toByteArray(), "received")
         v.messages.add(conv, "out", "Привет, вижу тебя".toByteArray(), "sent")
         v.messages.add(conv, "out", "А это ещё в пути".toByteArray(), "pending")
+        v.messages.add(conv, "in", png(1600, 900, 0xFF2E7D32.toInt()), "received", kind = "image", filename = "гор.png")
+        v.messages.add(conv, "out", png(900, 1600, 0xFF4D7BFF.toInt()), "sent", kind = "image", filename = "верт.png")
+        v.messages.add(conv, "in", "Смотри:\n```\nfun main() {\n    println(\"МЫС\")\n}\n```".toByteArray(), "received")
+        v.conversations.setPinned(conv, true)
+        for (i in 1..12) v.conversations.add(DECENTRALIZED, roomId = byteArrayOf((10 + i).toByte()), title = "Канал №$i")
         AppGraph.changed()
         waitText("Алиса")
         shot("2-channels")
+        compose.onNode(hasScrollAction()).performScrollToIndex(12)
+        shot("2b-channels-scrolled")
+        compose.onNode(hasScrollAction()).performScrollToIndex(0)
         compose.onNodeWithText("Алиса").performClick()
-        waitText("Это канал")
+        waitText("Смотри")
         shot("3-chat")
+        compose.onNodeWithTag("message").performTextInput("Длинное сообщение,\nчтобы проверить,\nкак кнопки держат строку")
+        shot("3b-chat-typing")
         compose.activity.runOnUiThread { compose.activity.onBackPressedDispatcher.onBackPressed() }
         waitText("КАНАЛЫ")
         compose.onNodeWithText("ЦЕНТР").performClick()

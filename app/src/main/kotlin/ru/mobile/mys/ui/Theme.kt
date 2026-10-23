@@ -1,5 +1,19 @@
 package ru.mobile.mys.ui
 
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
+import androidx.compose.foundation.interaction.collectIsFocusedAsState
+import androidx.compose.foundation.layout.RowScope
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.IntOffset
+import kotlin.math.roundToInt
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -85,9 +99,9 @@ fun MysTheme(dark: Boolean, content: @Composable () -> Unit) =
 @Composable
 fun T(
     text: String, modifier: Modifier = Modifier, size: Int = 16, color: Color = colors.text,
-    bold: Boolean = false, upper: Boolean = false, mono: Boolean = false,
+    bold: Boolean = false, upper: Boolean = false, mono: Boolean = false, maxLines: Int = Int.MAX_VALUE,
 ) = BasicText(
-    if (upper) text.uppercase() else text, modifier,
+    if (upper) text.uppercase() else text, modifier, maxLines = maxLines, overflow = TextOverflow.Ellipsis,
     style = TextStyle(
         color = color, fontSize = size.sp, fontFamily = if (mono) Mono else Gost,
         fontWeight = if (bold) FontWeight.Bold else FontWeight.Normal,
@@ -99,12 +113,27 @@ enum class Variant { Default, Primary, Ink, Danger }
 
 private val SHADOW = 4.dp
 
-/** Блочная тень: смещённый прямоугольник без размытия; нажатие «вдавливает» лицо на её место. */
-fun Modifier.blockShadow(color: Color, pressed: Boolean = false, offset: Dp = SHADOW): Modifier =
-    padding(end = offset, bottom = offset).then(
-        if (pressed) Modifier.offset(offset, offset)
-        else Modifier.drawBehind { drawRect(color, Offset(offset.toPx(), offset.toPx()), size) },
-    )
+/** Ширина переключателей настроек: правый край колонки ровный. */
+val TOGGLE_W = 104.dp
+
+/** Карточки и диалоги на планшете не растягиваются во всю ширину. */
+val MAX_CARD = 480.dp
+
+/** Высота кнопок и полей: всё в одной строке встаёт ровно. */
+val CONTROL = 48.dp
+val CONTROL_SMALL = 36.dp
+
+private val PRESS = tween<Float>(90)
+private val FADE = tween<Color>(180)
+
+/**
+ * Блочная тень: смещённый прямоугольник без размытия. [press] 0…1 «вдавливает»
+ * лицо на место тени; тень при этом остаётся на месте.
+ */
+fun Modifier.blockShadow(color: Color, press: Float = 0f, offset: Dp = SHADOW): Modifier =
+    padding(end = offset, bottom = offset)
+        .offset { IntOffset((offset.toPx() * press).roundToInt(), (offset.toPx() * press).roundToInt()) }
+        .drawBehind { val d = offset.toPx() * (1 - press); drawRect(color, Offset(d, d), size) }
 
 @Composable
 fun BrutalButton(
@@ -114,21 +143,30 @@ fun BrutalButton(
     val c = colors
     val source = remember { MutableInteractionSource() }
     val pressed by source.collectIsPressedAsState()
+    val press by animateFloatAsState(if (pressed && enabled) 1f else 0f, PRESS, label = "press")
     val (face, fg, border, shadow) = when (variant) {
-        Variant.Primary -> listOf(c.accent, Color.White, c.ink, c.line)
+        Variant.Primary -> listOf(c.accent, Color.White, c.line, c.line)
         Variant.Ink -> listOf(c.line, c.bg, c.line, c.accent)
         Variant.Danger -> listOf(c.surface, c.warn, c.warn, c.warn)
         Variant.Default -> listOf(c.surface, c.text, c.line, c.line)
     }
+    val faceA by animateColorAsState(if (enabled) face else c.surface3, FADE, label = "face")
+    val fgA by animateColorAsState(if (enabled) fg else c.text3, FADE, label = "fg")
+    val h = if (small) CONTROL_SMALL else CONTROL
     Box(
         modifier
-            .blockShadow(shadow, pressed && enabled)
-            .background(if (enabled) face else c.surface3)
-            .border(2.dp, border)
+            .blockShadow(if (enabled) shadow else c.border2, press)
+            .heightIn(min = h).widthIn(min = h) // короткие подписи («→», «+») — квадрат
+            .background(faceA)
+            .border(2.dp, if (enabled) border else c.border2)
             .clickable(source, indication = null, enabled = enabled, onClick = onClick)
-            .padding(horizontal = if (small) 10.dp else 16.dp, vertical = if (small) 6.dp else 12.dp),
+            .padding(horizontal = if (small) 10.dp else 16.dp, vertical = 6.dp),
         contentAlignment = Alignment.Center,
-    ) { T(text, size = if (small) 13 else 15, color = if (enabled) fg else c.text3, bold = true, upper = true) }
+    ) {
+        // одиночный знак («+», «→», «⚙») — значок, ему нужен крупный кегль
+        val icon = text.length == 1
+        T(text, size = if (icon) (if (small) 18 else 22) else if (small) 13 else 15, color = fgA, bold = true, upper = !icon, maxLines = 1)
+    }
 }
 
 @Composable
@@ -137,9 +175,15 @@ fun BrutalField(
     password: Boolean = false, singleLine: Boolean = true, digits: Boolean = false, tag: String? = null,
 ) {
     val c = colors
+    val source = remember { MutableInteractionSource() }
+    val focused by source.collectIsFocusedAsState()
+    val edge by animateColorAsState(if (focused) c.accent else c.line, FADE, label = "edge")
     BasicTextField(
         value, onChange,
-        modifier.background(c.field).border(1.dp, c.line).padding(12.dp).then(if (tag != null) Modifier.testTag(tag) else Modifier),
+        // та же тень, что у кнопок: края полей и кнопок совпадают в любой строке и колонке
+        modifier.blockShadow(if (focused) c.accent else c.border2).heightIn(min = CONTROL)
+            .background(c.field).border(2.dp, edge).padding(horizontal = 12.dp, vertical = 8.dp)
+            .then(if (tag != null) Modifier.testTag(tag) else Modifier),
         textStyle = TextStyle(color = c.text, fontSize = 18.sp, fontFamily = Gost),
         singleLine = singleLine,
         visualTransformation = if (password) PasswordVisualTransformation() else VisualTransformation.None,
@@ -148,9 +192,34 @@ fun BrutalField(
             digits -> KeyboardType.Number
             else -> KeyboardType.Text
         }),
+        interactionSource = source,
         cursorBrush = SolidColor(c.accent),
-        decorationBox = { inner -> Box { if (value.isEmpty()) T(placeholder, size = 18, color = c.text3); inner() } },
+        decorationBox = { inner ->
+            Box(contentAlignment = Alignment.CenterStart) { if (value.isEmpty()) T(placeholder, size = 18, color = c.text3); inner() }
+        },
     )
+}
+
+/** Шапка экрана: назад, заголовок с подзаголовком, действия справа; снизу — жёсткая линия. */
+@Composable
+fun TopBar(
+    title: String, onBack: (() -> Unit)? = null, big: Boolean = false,
+    subtitle: (@Composable () -> Unit)? = null, actions: @Composable RowScope.() -> Unit = {},
+) {
+    val c = colors
+    Row(
+        Modifier.fillMaxWidth().background(c.surface2).heightIn(min = 64.dp)
+            .drawBehind { val w = 2.dp.toPx(); drawRect(c.line, Offset(0f, size.height - w), Size(size.width, w)) }
+            .padding(horizontal = 16.dp, vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        onBack?.let { BrutalButton("←", small = true, onClick = it) }
+        Column(Modifier.weight(1f)) {
+            T(title, size = if (big) 26 else 20, bold = true, upper = big || subtitle == null, maxLines = 1)
+            subtitle?.invoke()
+        }
+        actions()
+    }
 }
 
 /** Строка настройки с переключателем ВКЛ/ВЫКЛ. */
@@ -160,7 +229,7 @@ fun Toggle(label: String, on: Boolean, onChange: (Boolean) -> Unit) = Row(
     horizontalArrangement = Arrangement.SpaceBetween,
 ) {
     T(label, Modifier.weight(1f).padding(end = 12.dp))
-    BrutalButton(if (on) "Вкл" else "Выкл", variant = if (on) Variant.Primary else Variant.Default, small = true) { onChange(!on) }
+    BrutalButton(if (on) "Вкл" else "Выкл", Modifier.widthIn(min = TOGGLE_W), variant = if (on) Variant.Primary else Variant.Default, small = true) { onChange(!on) }
 }
 
 /**
@@ -170,12 +239,15 @@ fun Toggle(label: String, on: Boolean, onChange: (Boolean) -> Unit) = Row(
 @Composable
 fun Overlay(title: String, onDismiss: () -> Unit, content: @Composable () -> Unit) {
     val c = colors
+    val shown = remember { Animatable(0f) }
+    LaunchedEffect(Unit) { shown.animateTo(1f, tween(160)) }
     Box(
-        Modifier.fillMaxSize().background(Color(0xCC000000)).clickable(remember { MutableInteractionSource() }, null, onClick = onDismiss),
+        Modifier.fillMaxSize().graphicsLayer { alpha = shown.value }.background(Color(0xCC000000)).clickable(remember { MutableInteractionSource() }, null, onClick = onDismiss),
         contentAlignment = Alignment.Center,
     ) {
         Column(
-            Modifier.padding(24.dp).fillMaxWidth()
+            Modifier.padding(24.dp).widthIn(max = MAX_CARD).fillMaxWidth()
+                .graphicsLayer { val k = 0.94f + 0.06f * shown.value; scaleX = k; scaleY = k }
                 .blockShadow(c.accent, offset = 8.dp)
                 .background(c.surface).border(2.dp, c.line)
                 .clickable(remember { MutableInteractionSource() }, null) {} // клики внутри не закрывают

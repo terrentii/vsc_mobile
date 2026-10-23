@@ -7,11 +7,16 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -61,9 +66,11 @@ fun UnlockScreen() {
         }
     }
 
-    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+    // По центру, но прокручивается: в альбомной ориентации клавиатура иначе закрывает кнопку
+    BoxWithConstraints(Modifier.fillMaxSize()) {
+      Box(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).heightIn(min = maxHeight), contentAlignment = Alignment.Center) {
         Column(
-            Modifier.padding(24.dp).fillMaxWidth().blockShadow(c.accent, offset = 8.dp).background(c.surface).border(2.dp, c.line).padding(24.dp),
+            Modifier.padding(24.dp).widthIn(max = MAX_CARD).fillMaxWidth().blockShadow(c.accent, offset = 8.dp).background(c.surface).border(2.dp, c.line).padding(24.dp),
             verticalArrangement = Arrangement.spacedBy(14.dp),
         ) {
             Image(painterResource(R.mipmap.ic_launcher), null, Modifier.size(64.dp))
@@ -80,6 +87,7 @@ fun UnlockScreen() {
                 BrutalButton("Отпечаток", Modifier.fillMaxWidth(), enabled = !busy) { biometricUnlock(activity) { error = it } }
             }
         }
+      }
     }
 }
 

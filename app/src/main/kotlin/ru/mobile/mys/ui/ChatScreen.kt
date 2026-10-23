@@ -6,6 +6,17 @@ import android.provider.OpenableColumns
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.RowScope
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -14,12 +25,13 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.layout.size
+import androidx.compose.ui.unit.DpSize
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -55,7 +67,7 @@ private val TIME = DateTimeFormatter.ofPattern("HH:mm").withZone(ZoneId.systemDe
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
-fun ChatScreen(conversationId: Long, mode: String, onBack: () -> Unit) {
+fun ChatScreen(conversationId: Long, mode: String, onBack: (() -> Unit)?) {
     val c = colors
     val vault = AppGraph.vault ?: return
     val ctx = LocalContext.current
@@ -76,7 +88,9 @@ fun ChatScreen(conversationId: Long, mode: String, onBack: () -> Unit) {
             messages = vault.messages.list(conversationId)
         }
     }
-    LaunchedEffect(messages.size) { if (messages.isNotEmpty()) list.scrollToItem(messages.size - 1) }
+    // Список перевёрнут (reverseLayout): низ — новейшее, и докачка картинок выше его не сдвигает.
+    // Новое сообщение: если были внизу — остаёмся внизу.
+    LaunchedEffect(messages.lastOrNull()?.id) { if (list.firstVisibleItemIndex <= 1) list.animateScrollToItem(0) }
 
     val saveLauncher = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("*/*")) { uri ->
         val bytes = saving
@@ -106,33 +120,44 @@ fun ChatScreen(conversationId: Long, mode: String, onBack: () -> Unit) {
 
     Box(Modifier.fillMaxSize()) {
         Column(Modifier.fillMaxSize()) {
-            Row(Modifier.fillMaxWidth().background(c.surface2).padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
-                BrutalButton("←", small = true, onClick = onBack)
-                Column(Modifier.padding(start = 12.dp).weight(1f)) {
-                    T(title.ifEmpty { if (p2p) "Канал" else "Комната" }, size = 22, bold = true)
-                    if (p2p) PeerStatus(conversationId) else {
-                        val code = AppGraph.central?.roomCode(conversationId)
-                        SelectionContainer { T(if (code != null) "Код $code" else "Центр", size = 14, color = c.text2, upper = true) }
+            TopBar(title.ifEmpty { if (p2p) "Канал" else "Комната" }, onBack, subtitle = {
+                if (p2p) PeerStatus(conversationId) else {
+                    val code = AppGraph.central?.roomCode(conversationId)
+                    SelectionContainer { T(if (code != null) "Код $code" else "Центр", size = 13, color = c.text2, upper = true) }
+                }
+            })
+            AnimatedVisibility(p2p && AppGraph.online[conversationId] != true, enter = expandVertically() + fadeIn(), exit = shrinkVertically() + fadeOut()) {
+                ConnectBar(conversationId)
+            }
+
+            Blueprint(Modifier.weight(1f).fillMaxWidth()) {
+                LazyColumn(
+                    Modifier.fillMaxSize(), state = list, reverseLayout = true,
+                    contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp),
+                ) {
+                    items(messages.asReversed(), key = { it.id }) { m ->
+                        MessageRow(m, p2p, title, Modifier.combinedClickable(onClick = {}, onLongClick = { menuFor = m }), Modifier.animateItem())
                     }
                 }
             }
-            if (p2p && AppGraph.online[conversationId] != true) ConnectBar(conversationId)
 
-            LazyColumn(Modifier.weight(1f).fillMaxWidth().padding(horizontal = 12.dp), state = list, verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                items(messages, key = { it.id }) { m ->
-                    MessageRow(m, p2p, title, Modifier.combinedClickable(onClick = {}, onLongClick = { menuFor = m }))
-                }
-            }
-
-            reply?.let { r ->
-                Row(Modifier.fillMaxWidth().background(c.accentSoft).padding(10.dp), verticalAlignment = Alignment.CenterVertically) {
-                    T("↩ ${r.sender}: ${r.snippet}", Modifier.weight(1f), size = 14, color = c.text2)
+            AnimatedVisibility(reply != null, enter = expandVertically() + fadeIn(), exit = shrinkVertically() + fadeOut()) {
+                var last by remember { mutableStateOf(reply) }
+                reply?.let { last = it }
+                last?.let { r -> Bar {
+                    T("↩ ${r.sender}: ${r.snippet}", Modifier.weight(1f), size = 14, color = c.text2, maxLines = 1)
                     BrutalButton("✕", small = true) { reply = null }
-                }
+                } }
             }
-            Row(Modifier.fillMaxWidth().padding(12.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                BrutalButton("Файл", small = true) { pickLauncher.launch(arrayOf("*/*")) }
-                BrutalField(text, { text = it }, "Сообщение", Modifier.weight(1f).heightIn(max = 140.dp), singleLine = false, tag = "message")
+            // Строка ввода: всё высотой CONTROL и по нижнему краю — при многострочном тексте кнопки остаются внизу
+            Row(
+                Modifier.fillMaxWidth().background(c.surface2)
+                    .drawBehind { drawRect(c.line, size = Size(size.width, 2.dp.toPx())) }
+                    .padding(start = 16.dp, end = 12.dp, top = 12.dp, bottom = 8.dp),
+                verticalAlignment = Alignment.Bottom, horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                BrutalButton("+", Modifier.semantics { contentDescription = "Прикрепить файл" }) { pickLauncher.launch(arrayOf("*/*")) }
+                BrutalField(text, { text = it }, "Сообщение", Modifier.weight(1f).heightIn(max = 160.dp), singleLine = false, tag = "message")
                 BrutalButton("→", variant = Variant.Primary, enabled = text.isNotBlank()) { send() }
             }
         }
@@ -175,8 +200,15 @@ private fun PeerStatus(conversationId: Long) {
     val c = colors
     val on = AppGraph.online[conversationId] == true
     val path = if (AppGraph.direct[conversationId] == true) "напрямую" else "через сервер"
-    T(if (on) "● В сети · $path" else "● Не в сети", size = 14, color = if (on) c.success else c.text3, upper = true)
+    T(if (on) "● В сети · $path" else "● Не в сети", size = 13, color = if (on) c.success else c.text3, upper = true)
 }
+
+/** Полоса-уведомление под шапкой: текст слева, кнопка справа. */
+@Composable
+private fun Bar(content: @Composable RowScope.() -> Unit) = Row(
+    Modifier.fillMaxWidth().background(colors.accentSoft).heightIn(min = 56.dp).padding(horizontal = 16.dp, vertical = 8.dp),
+    verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp), content = content,
+)
 
 /** Нет канала: «Выйти на связь» или окно ожидания пира с обратным отсчётом. */
 @Composable
@@ -185,7 +217,7 @@ private fun ConnectBar(conversationId: Long) {
     val deadline = AppGraph.waiting[conversationId]
     var now by remember { mutableLongStateOf(System.currentTimeMillis()) }
     LaunchedEffect(deadline) { while (deadline != null) { now = System.currentTimeMillis(); delay(1_000) } }
-    Row(Modifier.fillMaxWidth().background(c.accentSoft).padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
+    Bar {
         if (deadline != null) {
             val left = ((deadline - now) / 1000).coerceAtLeast(0)
             T("Ждём собеседника ${left / 60}:${"%02d".format(left % 60)}", Modifier.weight(1f), upper = true)
@@ -198,29 +230,28 @@ private fun ConnectBar(conversationId: Long) {
 }
 
 @Composable
-private fun MessageRow(m: Message, p2p: Boolean, peerName: String, modifier: Modifier) {
+private fun MessageRow(m: Message, p2p: Boolean, peerName: String, modifier: Modifier, rowModifier: Modifier) {
     val c = colors
     val out = m.direction == "out"
-    Box(Modifier.fillMaxWidth(), contentAlignment = if (out) Alignment.CenterEnd else Alignment.CenterStart) {
+    Box(rowModifier.fillMaxWidth(), contentAlignment = if (out) Alignment.CenterEnd else Alignment.CenterStart) {
         Column(
-            modifier.widthIn(max = 320.dp).blockShadow(if (out) c.accent else c.line)
+            modifier.widthIn(max = 300.dp).blockShadow(if (out) c.accent else c.line)
                 .background(if (out) c.accentSoft else c.bubbleThem).border(2.dp, c.line).padding(10.dp),
             verticalArrangement = Arrangement.spacedBy(4.dp),
         ) {
             // P2P: название канала, если его переименовали, иначе «Собеседник»
             val author = if (out) "Вы" else if (p2p) peerName.ifEmpty { "Собеседник" } else m.sender ?: "?"
             val time = (m.sentAt ?: m.receivedAt)?.let { TIME.format(Instant.ofEpochMilli(it)) } ?: ""
-            val status = when (m.status) { "pending" -> " · …"; "failed" -> " · не отправлено"; else -> "" }
-            Row {
-                T(author, size = 13, color = if (out) c.accent else c.text2, bold = true, upper = true)
-                Spacer(Modifier.weight(1f, fill = false).padding(start = 8.dp))
-                T("  $time$status", size = 13, color = if (m.status == "failed") c.warn else c.text3)
+            val status = when (m.status) { "pending" -> " · отправка"; "failed" -> " · не отправлено"; else -> "" }
+            Row(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
+                T(author, Modifier.weight(1f, fill = false), size = 12, color = if (out) c.accent else c.text2, bold = true, upper = true, maxLines = 1)
+                T("$time$status", size = 12, color = if (m.status == "failed") c.warn else c.text3, mono = true)
             }
             m.replyAuthor?.let { T("↩ $it: ${m.replySnippet ?: ""}", size = 13, color = c.text2) }
             when (m.kind) {
                 "image" -> MediaImage(m)
                 "file" -> T("📎 ${m.filename ?: "файл"}${m.body?.let { " · ${it.size / 1024} КБ" } ?: ""}", color = c.bubbleThemText)
-                else -> T(m.body?.decodeToString() ?: "", color = if (out) c.text else c.bubbleThemText)
+                else -> MessageText(m.body?.decodeToString() ?: "", if (out) c.text else c.bubbleThemText)
             }
         }
     }
@@ -236,8 +267,20 @@ private fun MediaImage(m: Message) {
         return
     }
     val bitmap by produceState<ImageBitmap?>(null, m.id, bytes.size) { value = withContext(Dispatchers.Default) { decodePreview(bytes) } }
-    bitmap?.let { Image(it, m.filename, Modifier.fillMaxWidth().heightIn(max = 280.dp), contentScale = ContentScale.Fit) }
+    bitmap?.let { Image(it, m.filename, Modifier.size(imageSize(it.width, it.height)), contentScale = ContentScale.Crop) }
         ?: T(m.filename ?: "изображение", color = colors.text3)
+}
+
+private val IMAGE_MAX_W = 280.dp
+private val IMAGE_MAX_H = 360.dp
+private val IMAGE_MIN_W = 160.dp // чтобы строка «автор · время» не сжималась
+
+/** Размер превью по пропорциям картинки: пузырь облегает её, без полос по краям. */
+internal fun imageSize(w: Int, h: Int): DpSize {
+    if (w <= 0 || h <= 0) return DpSize(IMAGE_MAX_W, IMAGE_MAX_W)
+    val aspect = w.toFloat() / h
+    return if (aspect >= IMAGE_MAX_W / IMAGE_MAX_H) DpSize(IMAGE_MAX_W, IMAGE_MAX_W / aspect)
+    else DpSize(maxOf(IMAGE_MAX_H * aspect, IMAGE_MIN_W), IMAGE_MAX_H) // очень узкие — лёгкая обрезка по высоте
 }
 
 private fun decodePreview(bytes: ByteArray): ImageBitmap? {
@@ -251,7 +294,7 @@ private fun decodePreview(bytes: ByteArray): ImageBitmap? {
 private fun preview(m: Message) = when (m.kind) {
     "image" -> "Изображение"
     "file" -> m.filename ?: "Файл"
-    else -> m.body?.decodeToString() ?: ""
+    else -> m.body?.decodeToString()?.replace("```", "") ?: ""
 }
 
 private suspend fun sendFile(ctx: android.content.Context, uri: Uri, conversationId: Long, p2p: Boolean) {
