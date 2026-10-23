@@ -65,6 +65,20 @@ class UiTest {
         compose.onNodeWithTag("username").performTextInput("кто-то")
     }
 
+    @Test fun p2pAuthorIsPeerUntilRenamed() {
+        create()
+        val v = AppGraph.vault!!
+        val conv = v.conversations.add(DECENTRALIZED, roomId = byteArrayOf(9))
+        v.messages.add(conv, "in", "привет".toByteArray(), "received")
+        AppGraph.changed()
+        waitText("Канал $conv")
+        compose.onNodeWithText("Канал $conv").performClick()
+        waitText("СОБЕСЕДНИК")
+        v.conversations.rename(conv, "Алиса")
+        AppGraph.changed()
+        waitText("АЛИСА")
+    }
+
     @Test fun chatShowsStoredMessagesAndConnectButton() {
         create()
         val v = AppGraph.vault!!
