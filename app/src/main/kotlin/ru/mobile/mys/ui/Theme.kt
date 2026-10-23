@@ -175,6 +175,7 @@ fun BrutalField(
     password: Boolean = false, singleLine: Boolean = true, digits: Boolean = false, tag: String? = null,
     /** Видимый текст, но клавиатура «как для пароля»: без подсказок и запоминания слов (секретная фраза). */
     secret: Boolean = false,
+    enabled: Boolean = true,
 ) {
     val c = colors
     val source = remember { MutableInteractionSource() }
@@ -197,6 +198,7 @@ fun BrutalField(
         }, autoCorrectEnabled = !(password || secret)),
         interactionSource = source,
         cursorBrush = SolidColor(c.accent),
+        enabled = enabled,
         decorationBox = { inner ->
             Box(contentAlignment = Alignment.CenterStart) { if (value.isEmpty()) T(placeholder, size = 18, color = c.text3); inner() }
         },
@@ -207,7 +209,8 @@ fun BrutalField(
 @Composable
 fun TopBar(
     title: String, onBack: (() -> Unit)? = null, big: Boolean = false,
-    subtitle: (@Composable () -> Unit)? = null, actions: @Composable RowScope.() -> Unit = {},
+    subtitle: (@Composable () -> Unit)? = null, leading: (@Composable () -> Unit)? = null,
+    actions: @Composable RowScope.() -> Unit = {},
 ) {
     val c = colors
     Row(
@@ -217,6 +220,7 @@ fun TopBar(
         verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         onBack?.let { BrutalButton("←", small = true, onClick = it) }
+        leading?.invoke()
         Column(Modifier.weight(1f)) {
             T(title, size = if (big) 26 else 20, bold = true, upper = big || subtitle == null, maxLines = 1)
             subtitle?.invoke()

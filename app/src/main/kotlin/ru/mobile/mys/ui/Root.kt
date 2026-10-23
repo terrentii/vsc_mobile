@@ -51,6 +51,7 @@ private sealed interface Screen {
     data object Main : Screen
     data class Chat(val conversationId: Long, val mode: String) : Screen
     data object Settings : Screen
+    data class RoomSettings(val conversationId: Long) : Screen
 }
 
 @Composable
@@ -65,7 +66,10 @@ fun Root() {
 private fun Unlocked() {
     var screen by remember { mutableStateOf<Screen>(Screen.Main) }
     var mode by rememberSaveable { mutableStateOf(DECENTRALIZED) }
-    BackHandler(screen != Screen.Main) { screen = Screen.Main }
+    BackHandler(screen != Screen.Main) {
+        screen = (screen as? Screen.RoomSettings)?.let { Screen.Chat(it.conversationId, mode) } ?: Screen.Main
+    }
+    BiometricOffer()
     val notify = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) {}
     LaunchedEffect(Unit) { if (Build.VERSION.SDK_INT >= 33) notify.launch(Manifest.permission.POST_NOTIFICATIONS) }
     // Планшет, развёрнутый складной, альбомная ориентация: список слева, чат справа
@@ -73,14 +77,18 @@ private fun Unlocked() {
         Row(Modifier.fillMaxSize()) {
             Box(Modifier.width(LIST_PANE).fillMaxHeight()) {
                 MainScreen(mode, onMode = { mode = it }, onOpen = { screen = Screen.Chat(it, mode) },
-                    onSettings = { screen = Screen.Settings }, selected = (screen as? Screen.Chat)?.conversationId)
+                    onSettings = { screen = Screen.Settings }, selected = (screen as? Screen.Chat)?.conversationId,
+                    onRoomSettings = { screen = Screen.RoomSettings(it) })
             }
             Box(Modifier.width(2.dp).fillMaxHeight().background(colors.line))
             AnimatedContent(screen, Modifier.weight(1f), transitionSpec = { fadeIn(tween(220)) togetherWith fadeOut(tween(120)) }, label = "pane") { s ->
                 when (s) {
                     Screen.Main -> EmptyPane()
-                    is Screen.Chat -> ChatScreen(s.conversationId, s.mode, onBack = null)
+                    is Screen.Chat -> ChatScreen(s.conversationId, s.mode, onBack = null,
+                        onRoomSettings = { screen = Screen.RoomSettings(s.conversationId) })
                     Screen.Settings -> SettingsScreen(onBack = { screen = Screen.Main })
+                    is Screen.RoomSettings -> RoomSettingsScreen(s.conversationId,
+                        onBack = { screen = Screen.Chat(s.conversationId, mode) }, onGone = { screen = Screen.Main })
                 }
             }
         }
@@ -93,10 +101,31 @@ private fun Unlocked() {
         (slideInHorizontally(tween(260)) { it * dir / 3 } + fadeIn(tween(260))) togetherWith
             (slideOutHorizontally(tween(200)) { -it * dir / 6 } + fadeOut(tween(160)))
     }, label = "screen") { s -> when (s) {
-        Screen.Main -> MainScreen(mode, onMode = { mode = it }, onOpen = { screen = Screen.Chat(it, mode) }, onSettings = { screen = Screen.Settings })
-        is Screen.Chat -> ChatScreen(s.conversationId, s.mode, onBack = { screen = Screen.Main })
+        Screen.Main -> MainScreen(mode, onMode = { mode = it }, onOpen = { screen = Screen.Chat(it, mode) },
+            onSettings = { screen = Screen.Settings }, onRoomSettings = { screen = Screen.RoomSettings(it) })
+        is Screen.Chat -> ChatScreen(s.conversationId, s.mode, onBack = { screen = Screen.Main },
+            onRoomSettings = { screen = Screen.RoomSettings(s.conversationId) })
         Screen.Settings -> SettingsScreen(onBack = { screen = Screen.Main })
+        is Screen.RoomSettings -> RoomSettingsScreen(s.conversationId,
+            onBack = { screen = Screen.Chat(s.conversationId, mode) }, onGone = { screen = Screen.Main })
     } }
+}
+
+/** Хранилище только что создано и есть датчик — предложить вход по отпечатку (один раз). */
+@Composable
+private fun BiometricOffer() {
+    if (!AppGraph.offerBiometric) return
+    val activity = androidx.activity.compose.LocalActivity.current as androidx.fragment.app.FragmentActivity
+    Overlay("Вход по отпечатку", onDismiss = { AppGraph.offerBiometric = false }) {
+        T("Открывать хранилище отпечатком? ПИН-код останется запасным способом.", color = colors.text2)
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp, Alignment.End)) {
+            BrutalButton("Не сейчас") { AppGraph.offerBiometric = false }
+            BrutalButton("Включить", variant = Variant.Primary) {
+                AppGraph.offerBiometric = false
+                enableBiometric(activity) { err -> if (err != null) AppGraph.errors.tryEmit(err) }
+            }
+        }
+    }
 }
 
 /** Правая панель, пока ничего не открыто. */

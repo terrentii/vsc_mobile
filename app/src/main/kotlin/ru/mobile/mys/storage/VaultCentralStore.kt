@@ -1,6 +1,5 @@
 package ru.mobile.mys.storage
 
-import ru.mobile.mys.central.Account
 import ru.mobile.mys.central.CentralStore
 import ru.mobile.mys.central.NewMessage
 import ru.mobile.mys.central.StoredMessage
@@ -29,11 +28,7 @@ class VaultCentralStore(private val vault: Vault) : CentralStore {
 
     override fun claimOwn(username: String) = vault.messages.claimOwn(MODE, username)
 
-    override fun forgetConversation(conversationId: Long) {
-        val room = vault.conversations.get(conversationId)?.roomId?.decodeToString()
-        vault.conversations.delete(conversationId) // вместе с сообщениями и ratchet
-        room?.let { vault.settings.delete(Account.CURSOR_PREFIX + it); vault.settings.delete(Account.CODE_PREFIX + it) }
-    }
+    override fun forgetConversation(conversationId: Long) = vault.conversations.delete(conversationId) // с сообщениями
 
     override fun get(messageId: Long) = vault.messages.get(messageId)?.stored()
     override fun findByWire(conversationId: Long, wireSeq: Long) = vault.messages.findByWire(conversationId, wireSeq)?.stored()

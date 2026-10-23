@@ -175,7 +175,9 @@ class CentralService(
         (rest ?: throw IllegalStateException("нет сессии")).setMe(shareRead, shareOnline)
 
     private fun forget(conversationId: Long) {
+        val room = runCatching { store.roomOf(conversationId) }.getOrNull()
         store.forgetConversation(conversationId)
+        room?.let { store.deleteSetting(Account.CURSOR_PREFIX + it); store.deleteSetting(Account.CODE_PREFIX + it) }
         _metas.update { it - conversationId }
         _events.tryEmit(CentralEvent.Room(conversationId, "room_removed"))
         _events.tryEmit(CentralEvent.State("synced"))

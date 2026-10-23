@@ -39,6 +39,7 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -59,11 +60,14 @@ import ru.mobile.mys.DECENTRALIZED
 import ru.mobile.mys.central.AuthException
 import ru.mobile.mys.storage.Conversation
 
-private enum class Prompt { New, Join, Rename }
+private enum class Prompt { New, Join, Rename, Write }
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
-fun MainScreen(mode: String, onMode: (String) -> Unit, onOpen: (Long) -> Unit, onSettings: () -> Unit, selected: Long? = null) {
+fun MainScreen(
+    mode: String, onMode: (String) -> Unit, onOpen: (Long) -> Unit, onSettings: () -> Unit, selected: Long? = null,
+    onRoomSettings: (Long) -> Unit = {},
+) {
     val c = colors
     val vault = AppGraph.vault ?: return
     val tick = AppGraph.tick.intValue
@@ -82,6 +86,8 @@ fun MainScreen(mode: String, onMode: (String) -> Unit, onOpen: (Long) -> Unit, o
     }
     val central = AppGraph.central
     val p2p = mode == DECENTRALIZED
+    // «Центр»: комнаты глазами пользователя — название, аватарка, приглашение, диалог
+    val metas = central?.metas?.collectAsState()?.value ?: emptyMap()
 
     Box(Modifier.fillMaxSize()) {
         Column(Modifier.fillMaxSize()) {
@@ -102,19 +108,21 @@ fun MainScreen(mode: String, onMode: (String) -> Unit, onOpen: (Long) -> Unit, o
             val sorted = convs.sortedWith(
                 compareByDescending<Conversation> { conv -> last[conv.id]?.let { it.sentAt ?: it.receivedAt } ?: conv.createdAt }.thenByDescending { it.id },
             )
-            val (pinned, rest) = sorted.partition { it.pinned }
+            val (invites, joined) = sorted.partition { !p2p && metas[it.id]?.role == "invited" }
+            val (pinned, rest) = joined.partition { it.pinned }
             Box(Modifier.weight(1f).fillMaxWidth()) {
-                LazyColumn(Modifier.fillMaxSize(), state = list, contentPadding = PaddingValues(bottom = if (p2p) 84.dp else 144.dp)) {
+                LazyColumn(Modifier.fillMaxSize(), state = list, contentPadding = PaddingValues(bottom = if (p2p) 84.dp else 204.dp)) {
                     // У верхнего заголовка ключ постоянный: иначе при первом закреплении список держался бы
                     // за «Каналы» и новая секция появлялась бы выше экрана
                     fun section(title: String, rows: List<Conversation>, first: Boolean) {
                         item(key = if (first) "h:first" else "h:$title") { SectionHeader(title, rows.size, Modifier.animateItem()) }
                         items(rows, key = { it.id }) { conv ->
-                            ConversationRow(conv, last[conv.id], p2p, conv.id == selected, Modifier.animateItem(), { onOpen(conv.id) }, { menuFor = conv })
+                            ConversationRow(conv, last[conv.id], p2p, conv.id == selected, Modifier.animateItem(), { onOpen(conv.id) }, { menuFor = conv }, metas[conv.id])
                         }
                     }
-                    if (pinned.isNotEmpty()) section("Закреплённые", pinned, first = true)
-                    section(if (p2p) "Каналы" else "Комнаты", rest, first = pinned.isEmpty())
+                    if (invites.isNotEmpty()) section("Приглашения", invites, first = true)
+                    if (pinned.isNotEmpty()) section("Закреплённые", pinned, first = invites.isEmpty())
+                    section(if (p2p) "Каналы" else "Комнаты", rest, first = invites.isEmpty() && pinned.isEmpty())
                     // Только когда список этого режима загружен; проявляется после того, как
                     // строки прошлого режима уехали, — иначе текст наезжал на них
                     if (convs.isEmpty() && loadedMode == mode) item(key = "empty:$mode") {
@@ -126,7 +134,7 @@ fun MainScreen(mode: String, onMode: (String) -> Unit, onOpen: (Long) -> Unit, o
                 }
                 // При прокрутке кнопки сворачиваются в квадраты в правом нижнем углу
                 Actions(p2p, collapsed = list.canScrollBackward, Modifier.align(Alignment.BottomEnd),
-                    onNew = { prompt = Prompt.New }, onJoin = { prompt = Prompt.Join })
+                    onNew = { prompt = Prompt.New }, onJoin = { prompt = Prompt.Join }, onWrite = { prompt = Prompt.Write })
             }
         }
 
@@ -136,7 +144,9 @@ fun MainScreen(mode: String, onMode: (String) -> Unit, onOpen: (Long) -> Unit, o
                     menuFor = null
                     AppGraph.run { vault.conversations.setPinned(conv.id, !conv.pinned) }
                 }
-                BrutalButton("Переименовать", Modifier.fillMaxWidth()) { prompt = Prompt.Rename }
+                // «Центр»: название и прочее — на сервере (настройки комнаты); P2P — локально
+                if (p2p) BrutalButton("Переименовать", Modifier.fillMaxWidth()) { prompt = Prompt.Rename }
+                else BrutalButton("Настройки комнаты", Modifier.fillMaxWidth()) { menuFor = null; onRoomSettings(conv.id) }
                 BrutalButton("Удалить с телефона", Modifier.fillMaxWidth(), Variant.Danger) {
                     menuFor = null
                     AppGraph.run {
@@ -180,6 +190,13 @@ fun MainScreen(mode: String, onMode: (String) -> Unit, onOpen: (Long) -> Unit, o
                     if (title != null) AppGraph.run { vault.conversations.rename(conv.id, title.trim()) }
                 })
             }
+            Prompt.Write -> TextPrompt("Написать пользователю", "Логин", okLabel = "Написать", onDone = { login ->
+                prompt = null
+                if (!login.isNullOrBlank()) AppGraph.run {
+                    val id = central?.invite(login.trim()) ?: return@run
+                    withContext(Dispatchers.Main) { onOpen(id) }
+                }
+            })
             null -> Unit
         }
     }
@@ -210,10 +227,10 @@ private fun SectionHeader(title: String, count: Int, modifier: Modifier) = Row(
 @Composable
 private fun ConversationRow(
     conv: Conversation, last: Message?, p2p: Boolean, selected: Boolean, modifier: Modifier,
-    onClick: () -> Unit, onLongClick: () -> Unit,
+    onClick: () -> Unit, onLongClick: () -> Unit, meta: ru.mobile.mys.central.RoomMeta? = null,
 ) {
     val c = colors
-    val title = conv.title ?: if (p2p) "Канал ${conv.id}" else "Комната ${conv.id}"
+    val title = meta?.title ?: conv.title ?: if (p2p) "Канал ${conv.id}" else "Комната ${conv.id}"
     Row(
         modifier.fillMaxWidth()
             .then(if (selected) Modifier.background(c.accentSoft).drawBehind { drawRect(c.accent, size = Size(4.dp.toPx(), size.height)) } else Modifier)
@@ -225,7 +242,8 @@ private fun ConversationRow(
             .padding(horizontal = 16.dp, vertical = 12.dp),
         verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        Box(Modifier.size(44.dp).background(if (selected) c.accent else c.surface).border(2.dp, c.line), contentAlignment = Alignment.Center) {
+        if (!p2p) RoomAvatar(conv.id, meta?.avatarRev ?: 0, title, 44.dp, selected)
+        else Box(Modifier.size(44.dp).background(if (selected) c.accent else c.surface).border(2.dp, c.line), contentAlignment = Alignment.Center) {
             T(title.trim().take(1).ifEmpty { "#" }, size = 20, bold = true, upper = true, color = if (selected) Color.White else c.text)
             if (p2p) { // статус канала — квадратик в углу монограммы
                 val on = AppGraph.online[conv.id] == true
@@ -237,7 +255,8 @@ private fun ConversationRow(
                 T(title, Modifier.weight(1f), size = 18, bold = true, maxLines = 1)
                 last?.let { m -> (m.sentAt ?: m.receivedAt)?.let { T(listTime(it), Modifier.padding(start = 8.dp), size = 12, color = c.text3, mono = true) } }
             }
-            T(preview(last, p2p), size = 14, color = c.text2, maxLines = 1)
+            T(if (meta?.role == "invited") "зовёт в диалог" else preview(last, p2p), size = 14,
+                color = if (meta?.role == "invited") c.accent else c.text2, maxLines = 1)
         }
     }
 }
@@ -259,7 +278,7 @@ private fun preview(m: Message?, p2p: Boolean): String {
 
 /** «Новая комната» / «Войти по коду»: во всю ширину наверху списка, квадраты в углу при прокрутке. */
 @Composable
-private fun Actions(p2p: Boolean, collapsed: Boolean, modifier: Modifier, onNew: () -> Unit, onJoin: () -> Unit) {
+private fun Actions(p2p: Boolean, collapsed: Boolean, modifier: Modifier, onNew: () -> Unit, onJoin: () -> Unit, onWrite: () -> Unit) {
     val f by animateFloatAsState(if (collapsed) 0f else 1f, tween(240), label = "actions")
     BoxWithConstraints(modifier.fillMaxWidth().background(colors.bg.copy(alpha = f)).padding(16.dp)) {
         val full = maxWidth
@@ -270,6 +289,8 @@ private fun Actions(p2p: Boolean, collapsed: Boolean, modifier: Modifier, onNew:
                 Modifier.width(w).semantics { contentDescription = if (p2p) "Новый канал" else "Новая комната" }, Variant.Ink, onClick = onNew)
             if (!p2p) BrutalButton(if (wide) "Войти по коду" else "#",
                 Modifier.width(w).semantics { contentDescription = "Войти по коду" }, onClick = onJoin)
+            if (!p2p) BrutalButton(if (wide) "Написать пользователю" else "@",
+                Modifier.width(w).semantics { contentDescription = "Написать пользователю" }, onClick = onWrite)
         }
     }
 }
