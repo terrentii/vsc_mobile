@@ -1,5 +1,19 @@
 package ru.mobile.mys.ui
 
+import kotlinx.coroutines.launch
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.width
+import androidx.compose.ui.layout.boundsInRoot
+import androidx.compose.ui.layout.positionInRoot
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.runtime.derivedStateOf
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.draw.drawWithContent
@@ -85,9 +99,17 @@ fun ChatScreen(conversationId: Long, mode: String, onBack: (() -> Unit)?, onRoom
     val tick = AppGraph.tick.intValue
     var messages by remember { mutableStateOf(emptyList<Message>()) }
     var title by remember { mutableStateOf("") }
-    var text by remember { mutableStateOf("") }
+    // черновик беседы переживает уход с экрана (живёт, пока открыто хранилище)
+    var text by remember { mutableStateOf(AppGraph.drafts[conversationId] ?: "") }
     var reply by remember { mutableStateOf<ReplyRef?>(null) }
-    var menuFor by remember { mutableStateOf<Message?>(null) }
+    var menuFor by remember { mutableStateOf<Pair<Message, Rect>?>(null) }
+    var viewing by remember { mutableStateOf<Message?>(null) }
+    var flash by remember { mutableStateOf<Long?>(null) }
+    val bounds = remember { HashMap<Long, Rect>() }
+    var origin by remember { mutableStateOf(Offset.Zero) }
+    val haptic = LocalHapticFeedback.current
+    val clipboard = LocalClipboardManager.current
+    val scope = rememberCoroutineScope()
     var editing by remember { mutableStateOf<Message?>(null) }
     var saving by remember { mutableStateOf<ByteArray?>(null) }
     val list = rememberLazyListState()
@@ -101,6 +123,20 @@ fun ChatScreen(conversationId: Long, mode: String, onBack: (() -> Unit)?, onRoom
     // Список перевёрнут (reverseLayout): низ — новейшее, и докачка картинок выше его не сдвигает.
     // Новое сообщение: если были внизу — остаёмся внизу.
     LaunchedEffect(messages.lastOrNull()?.id) { if (list.firstVisibleItemIndex <= 1) list.animateScrollToItem(0) }
+    val entries = remember(messages) { chatEntries(messages).asReversed() }
+    // «↓ вниз»: показываем, когда ушли от низа; счётчик — новые входящие с тех пор
+    val away by remember { derivedStateOf { list.firstVisibleItemIndex > 2 } }
+    var seenUpTo by remember { mutableLongStateOf(Long.MAX_VALUE) }
+    LaunchedEffect(away, messages.lastOrNull()?.id) { if (!away) seenUpTo = messages.lastOrNull()?.id ?: 0L }
+    val unread = if (away) messages.count { it.id > seenUpTo && it.direction == "in" } else 0
+    fun jumpTo(target: Message) = scope.launch {
+        val i = entries.indexOfFirst { it is MsgEntry && it.m.id == target.id }
+        if (i < 0) return@launch
+        list.animateScrollToItem(i)
+        flash = target.id
+        kotlinx.coroutines.delay(1_400)
+        if (flash == target.id) flash = null
+    }
     // «Центр»: комната глазами пользователя (диалог, своё название, аватар, собеседник)
     val meta = if (p2p) null else AppGraph.central?.metas?.collectAsState()?.value?.get(conversationId)
     val dialog = meta?.isDialog == true
@@ -126,6 +162,8 @@ fun ChatScreen(conversationId: Long, mode: String, onBack: (() -> Unit)?, onRoom
         val body = text.trim()
         if (body.isEmpty()) return
         text = ""
+        AppGraph.drafts.remove(conversationId)
+        haptic.performHapticFeedback(HapticFeedbackType.Confirm)
         val r = reply
         reply = null
         AppGraph.run {
@@ -139,7 +177,7 @@ fun ChatScreen(conversationId: Long, mode: String, onBack: (() -> Unit)?, onRoom
         }
     }
 
-    Box(Modifier.fillMaxSize()) {
+    Box(Modifier.fillMaxSize().onGloballyPositioned { origin = it.positionInRoot() }) {
         Column(Modifier.fillMaxSize()) {
             val shownTitle = meta?.title ?: title.ifEmpty { if (p2p) "Канал" else "Комната" }
             TopBar(
@@ -185,16 +223,40 @@ fun ChatScreen(conversationId: Long, mode: String, onBack: (() -> Unit)?, onRoom
                 ConnectBar(conversationId)
             }
 
-            Blueprint(Modifier.weight(1f).fillMaxWidth()) {
-                LazyColumn(
-                    Modifier.fillMaxSize(), state = list, reverseLayout = true,
-                    contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp),
-                ) {
-                    items(messages.asReversed(), key = { it.id }) { m ->
-                        MessageRow(m, p2p, title, Modifier.combinedClickable(onClick = {}, onLongClick = { menuFor = m }), Modifier.animateItem(),
-                            dialog = dialog, peerRead = meta?.peerRead ?: 0)
+            Box(Modifier.weight(1f).fillMaxWidth()) {
+                Blueprint(Modifier.fillMaxSize()) {
+                    LazyColumn(
+                        Modifier.fillMaxSize(), state = list, reverseLayout = true,
+                        contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp),
+                    ) {
+                        items(entries, key = { it.key }) { e ->
+                            when (e) {
+                                is DayEntry -> DaySeparator(e.day)
+                                is MsgEntry -> {
+                                    val m = e.m
+                                    val wire = m.wireSeq
+                                    SwipeToReply(enabled = !p2p && wire != null, onReply = {
+                                        reply = ReplyRef(wire!!, m.sender ?: "вы", preview(m).take(60))
+                                    }) {
+                                        MessageRow(
+                                            m, p2p, title,
+                                            Modifier.onGloballyPositioned { bounds[m.id] = it.boundsInRoot() }
+                                                .combinedClickable(onClick = {}, onLongClick = {
+                                                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                                    bounds[m.id]?.let { b -> menuFor = m to b.translate(-origin) }
+                                                }),
+                                            Modifier.animateItem(),
+                                            dialog = dialog, peerRead = meta?.peerRead ?: 0, highlight = flash == m.id,
+                                            onQuote = { quoteTarget(messages, m, AppGraph.central?.session?.username)?.let { jumpTo(it) } },
+                                            onImage = { viewing = m },
+                                        )
+                                    }
+                                }
+                            }
+                        }
                     }
                 }
+                ScrollDownButton(away, unread) { scope.launch { list.animateScrollToItem(0) } }
             }
 
             AnimatedVisibility(reply != null, enter = expandVertically() + fadeIn(), exit = shrinkVertically() + fadeOut()) {
@@ -216,6 +278,7 @@ fun ChatScreen(conversationId: Long, mode: String, onBack: (() -> Unit)?, onRoom
                 val locked = meta?.pendingInvite == true
                 BrutalField(text, {
                     text = it
+                    if (it.isBlank()) AppGraph.drafts.remove(conversationId) else AppGraph.drafts[conversationId] = it
                     val now = System.currentTimeMillis()
                     if (dialog && now - lastTyping > 3_000) { lastTyping = now; AppGraph.central?.typing(conversationId) }
                 }, if (locked) "Ждём принятия приглашения" else "Сообщение", Modifier.weight(1f).heightIn(max = 160.dp),
@@ -224,29 +287,36 @@ fun ChatScreen(conversationId: Long, mode: String, onBack: (() -> Unit)?, onRoom
             }
         }
 
-        menuFor?.let { m ->
-            Overlay("Сообщение", onDismiss = { menuFor = null }) {
-                val wire = m.wireSeq
-                if (!p2p && wire != null) BrutalButton("Ответить", Modifier.fillMaxWidth()) {
-                    reply = ReplyRef(wire, m.sender ?: "вы", preview(m).take(60))
-                    menuFor = null
-                }
-                if (m.kind != "text") BrutalButton("Сохранить файл", Modifier.fillMaxWidth()) {
-                    menuFor = null
+        menuFor?.let { (m, anchor) ->
+            val wire = m.wireSeq
+            val own = !p2p && m.direction == "out" && wire != null
+            val actions = buildList {
+                if (!p2p && wire != null) add(MenuAction("Ответить") { reply = ReplyRef(wire, m.sender ?: "вы", preview(m).take(60)) })
+                if (m.kind == "text") add(MenuAction("Копировать") {
+                    clipboard.setText(androidx.compose.ui.text.AnnotatedString(m.body?.decodeToString() ?: ""))
+                })
+                if (m.kind == "image" && m.body != null) add(MenuAction("Открыть") { viewing = m })
+                if (m.kind != "text") add(MenuAction("Сохранить файл") {
                     AppGraph.run {
                         saving = m.body ?: AppGraph.central?.fetchMedia(m.id)
                         withContext(Dispatchers.Main) { saveLauncher.launch(m.filename ?: "file") }
                     }
-                }
-                if (!p2p && m.direction == "out" && wire != null) {
-                    if (m.kind == "text") BrutalButton("Изменить", Modifier.fillMaxWidth()) { editing = m; menuFor = null }
-                    BrutalButton("Удалить у всех", Modifier.fillMaxWidth(), Variant.Danger) {
-                        menuFor = null
-                        AppGraph.run { AppGraph.central?.delete(m.id) }
-                    }
-                }
-                if (m.kind == "text") SelectionContainer { T(preview(m), color = c.text2) }
+                })
+                if (own && m.kind == "text") add(MenuAction("Изменить") { editing = m })
+                if (own) add(MenuAction("Удалить у всех", danger = true) { AppGraph.run { AppGraph.central?.delete(m.id) } })
             }
+            MessageMenu(anchor, m.direction == "out", actions, onDismiss = { menuFor = null }) {
+                // копия пузыря ровно по его размеру — встаёт поверх оригинала
+                Box(Modifier.width(with(LocalDensity.current) { anchor.width.toDp() })) {
+                    MessageRow(m, p2p, title, Modifier.fillMaxWidth(), Modifier, dialog = dialog, peerRead = meta?.peerRead ?: 0)
+                }
+            }
+        }
+        viewing?.let { m ->
+            PhotoViewer(m, onSave = {
+                saving = m.body
+                saveLauncher.launch(m.filename ?: "image.png")
+            }, onDismiss = { viewing = null })
         }
         editing?.let { m ->
             TextPrompt("Изменить", "Текст", initial = m.body?.decodeToString() ?: "", onDone = { body ->
@@ -308,14 +378,17 @@ private fun ConnectBar(conversationId: Long) {
 @Composable
 private fun MessageRow(
     m: Message, p2p: Boolean, peerName: String, modifier: Modifier, rowModifier: Modifier,
-    dialog: Boolean = false, peerRead: Long = 0,
+    dialog: Boolean = false, peerRead: Long = 0, highlight: Boolean = false,
+    onQuote: () -> Unit = {}, onImage: () -> Unit = {},
 ) {
     val c = colors
     val out = m.direction == "out"
+    // подсветка после перехода по цитате
+    val tint by androidx.compose.animation.animateColorAsState(if (highlight) c.accent.copy(alpha = 0.35f) else Color.Transparent, tween(400), label = "flash")
     Box(rowModifier.fillMaxWidth(), contentAlignment = if (out) Alignment.CenterEnd else Alignment.CenterStart) {
         Column(
             modifier.widthIn(max = 300.dp).blockShadow(if (out) c.accent else c.line)
-                .background(if (out) c.accentSoft else c.bubbleThem).border(2.dp, c.line).padding(10.dp),
+                .background(if (out) c.accentSoft else c.bubbleThem).background(tint).border(2.dp, c.line).padding(10.dp),
             verticalArrangement = Arrangement.spacedBy(4.dp),
         ) {
             // P2P: название канала, если его переименовали, иначе «Собеседник»
@@ -331,9 +404,17 @@ private fun MessageRow(
                 T("$time$status", size = 12, color = if (m.status == "failed") c.warn else c.text3, mono = true)
                 if (dots > 0) ReadDots(dots, if (read) c.accent else c.text3)
             }
-            m.replyAuthor?.let { T("↩ $it: ${m.replySnippet ?: ""}", size = 13, color = c.text2) }
+            m.replyAuthor?.let {
+                // цитата: полоска слева, нажатие — к исходному сообщению
+                Row(Modifier.clickable(onClick = onQuote).drawBehind { drawRect(c.accent, size = Size(3.dp.toPx(), size.height)) }.padding(start = 9.dp)) {
+                    Column {
+                        T(it, size = 12, color = c.accent, bold = true, maxLines = 1)
+                        T(m.replySnippet ?: "", size = 13, color = c.text2, maxLines = 2)
+                    }
+                }
+            }
             when (m.kind) {
-                "image" -> MediaImage(m)
+                "image" -> MediaImage(m, onImage)
                 "file" -> T("📎 ${m.filename ?: "файл"}${m.body?.let { " · ${it.size / 1024} КБ" } ?: ""}", color = c.bubbleThemText)
                 else -> MessageText(m.body?.decodeToString() ?: "", if (out) c.text else c.bubbleThemText)
             }
@@ -343,7 +424,7 @@ private fun MessageRow(
 
 /** Превью картинки; входящее вложение «Центра» без тела докачивается при показе. */
 @Composable
-private fun MediaImage(m: Message) {
+private fun MediaImage(m: Message, onOpen: () -> Unit = {}) {
     val bytes = m.body
     if (bytes == null) {
         LaunchedEffect(m.id) { AppGraph.run { AppGraph.central?.fetchMedia(m.id) } }
@@ -354,7 +435,7 @@ private fun MediaImage(m: Message) {
     // плашка → картинка с проявлением; своё фото, пока уходит, — с бегущей полосой
     androidx.compose.animation.Crossfade(bitmap, animationSpec = tween(320), label = "photo") { b ->
         if (b == null) LoadingPlate("")
-        else Image(b, m.filename, Modifier.size(imageSize(b.width, b.height)).scanning(m.status == "pending"), contentScale = ContentScale.Crop)
+        else Image(b, m.filename, Modifier.size(imageSize(b.width, b.height)).scanning(m.status == "pending").clickable(onClick = onOpen), contentScale = ContentScale.Crop)
     }
 }
 
