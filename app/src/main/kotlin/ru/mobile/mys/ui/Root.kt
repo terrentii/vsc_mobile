@@ -75,6 +75,13 @@ private fun Unlocked() {
         }
     }
     BiometricOffer()
+    // Скриншоты — только по настройке и только пока хранилище открыто (замок вернёт FLAG_SECURE)
+    val window = androidx.activity.compose.LocalActivity.current?.window
+    androidx.compose.runtime.DisposableEffect(AppGraph.screenshots) {
+        val secure = android.view.WindowManager.LayoutParams.FLAG_SECURE
+        if (AppGraph.screenshots) window?.clearFlags(secure) else window?.addFlags(secure)
+        onDispose { window?.addFlags(secure) }
+    }
     val notify = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) {}
     LaunchedEffect(Unit) { if (Build.VERSION.SDK_INT >= 33) notify.launch(Manifest.permission.POST_NOTIFICATIONS) }
     // Планшет, развёрнутый складной, альбомная ориентация: список слева, чат справа

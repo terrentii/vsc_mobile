@@ -37,6 +37,7 @@ fun SettingsScreen(onBack: () -> Unit, onMesh: () -> Unit = {}) {
     val central = AppGraph.central
     val meta = File(AppGraph.vaultDir, "vault.meta")
     var background by remember { mutableStateOf(AppGraph.backgroundEnabled()) }
+    var notifyText by remember { mutableStateOf(AppGraph.notifyText()) }
     var bio by remember { mutableStateOf(BiometricKey(AppGraph.vaultDir).isEnabled()) }
     var autolock by remember { mutableStateOf(AppGraph.autolockMinutes()) }
     var server by remember { mutableStateOf(AppGraph.serverUrl()) }
@@ -72,6 +73,15 @@ fun SettingsScreen(onBack: () -> Unit, onMesh: () -> Unit = {}) {
                 duress = on
             }
             BrutalButton("Сменить ПИН-код", Modifier.fillMaxWidth()) { changingPassword = true }
+
+            Section("Приватность")
+            Toggle("Текст сообщений в уведомлениях", notifyText) {
+                notifyText = it
+                AppGraph.setSetting(AppGraph.K_NOTIFY_TEXT, if (it) "1" else "0")
+            }
+            Toggle("Разрешить скриншоты", AppGraph.screenshots) { AppGraph.allowScreenshots(it) }
+            T("Текст уведомлений видят другие приложения с доступом к уведомлениям; на экране блокировки — только «Новое сообщение». " +
+                "Скриншоты и превью в «Недавних» работают, пока хранилище открыто.", color = c.text3, size = 14)
 
             Section("Сервер")
             BrutalField(server, { server = it }, "https://soufos.ru", Modifier.fillMaxWidth(), tag = "settings_server")
