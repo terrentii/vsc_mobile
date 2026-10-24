@@ -1,5 +1,14 @@
 package ru.mobile.mys.ui
 
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.composed
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.rememberInfiniteTransition
 import android.graphics.BitmapFactory
 import android.net.Uri
 import android.provider.OpenableColumns
@@ -183,7 +192,7 @@ fun ChatScreen(conversationId: Long, mode: String, onBack: (() -> Unit)?, onRoom
                 ) {
                     items(messages.asReversed(), key = { it.id }) { m ->
                         MessageRow(m, p2p, title, Modifier.combinedClickable(onClick = {}, onLongClick = { menuFor = m }), Modifier.animateItem(),
-                            dialog = dialog)
+                            dialog = dialog, peerRead = meta?.peerRead ?: 0)
                     }
                 }
             }
@@ -299,7 +308,7 @@ private fun ConnectBar(conversationId: Long) {
 @Composable
 private fun MessageRow(
     m: Message, p2p: Boolean, peerName: String, modifier: Modifier, rowModifier: Modifier,
-    dialog: Boolean = false,
+    dialog: Boolean = false, peerRead: Long = 0,
 ) {
     val c = colors
     val out = m.direction == "out"
@@ -313,10 +322,14 @@ private fun MessageRow(
             val author = if (out) "Вы" else if (p2p) peerName.ifEmpty { "Собеседник" } else m.sender ?: "?"
             val time = (m.sentAt ?: m.receivedAt)?.let { TIME.format(Instant.ofEpochMilli(it)) } ?: ""
             val status = when (m.status) { "pending" -> " · отправка"; "failed" -> " · не отправлено"; else -> "" }
-            // диалог: имя не повторяем
+            // диалог: имя не повторяем; у своих — • (на сервере) / •• акцентом (прочитано)
+            val wire = m.wireSeq
+            val read = dialog && out && wire != null && wire <= peerRead
+            val dots = if (dialog && out && status.isEmpty()) (if (read) 2 else 1) else 0
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
                 if (!dialog) T(author, Modifier.weight(1f, fill = false), size = 12, color = if (out) c.accent else c.text2, bold = true, upper = true, maxLines = 1)
                 T("$time$status", size = 12, color = if (m.status == "failed") c.warn else c.text3, mono = true)
+                if (dots > 0) ReadDots(dots, if (read) c.accent else c.text3)
             }
             m.replyAuthor?.let { T("↩ $it: ${m.replySnippet ?: ""}", size = 13, color = c.text2) }
             when (m.kind) {
@@ -334,13 +347,48 @@ private fun MediaImage(m: Message) {
     val bytes = m.body
     if (bytes == null) {
         LaunchedEffect(m.id) { AppGraph.run { AppGraph.central?.fetchMedia(m.id) } }
-        T("Загрузка изображения…", color = colors.text3)
+        LoadingPlate("загрузка")
         return
     }
     val bitmap by produceState<ImageBitmap?>(null, m.id, bytes.size) { value = withContext(Dispatchers.Default) { decodePreview(bytes) } }
-    bitmap?.let { Image(it, m.filename, Modifier.size(imageSize(it.width, it.height)), contentScale = ContentScale.Crop) }
-        ?: T(m.filename ?: "изображение", color = colors.text3)
+    // плашка → картинка с проявлением; своё фото, пока уходит, — с бегущей полосой
+    androidx.compose.animation.Crossfade(bitmap, animationSpec = tween(320), label = "photo") { b ->
+        if (b == null) LoadingPlate("")
+        else Image(b, m.filename, Modifier.size(imageSize(b.width, b.height)).scanning(m.status == "pending"), contentScale = ContentScale.Crop)
+    }
 }
+
+/** Точки прочтения: рисуем сами — в ГОСТе «•» выглядит как «×». */
+@Composable
+private fun ReadDots(n: Int, color: Color) = Row(horizontalArrangement = Arrangement.spacedBy(3.dp)) {
+    repeat(n) { Box(Modifier.size(6.dp).background(color, androidx.compose.foundation.shape.CircleShape)) }
+}
+
+/** Заглушка фото, пока оно качается/декодируется: поле с бегущей полосой «Чертежа». */
+@Composable
+private fun LoadingPlate(label: String) {
+    val c = colors
+    Box(Modifier.size(PLATE).background(c.field).border(1.dp, c.line).scanning(true), contentAlignment = Alignment.Center) {
+        if (label.isNotEmpty()) T(label, size = 13, color = c.text3, mono = true, upper = true)
+    }
+}
+
+/** Полоса, бегущая слева направо, — идёт загрузка или отправка. */
+private fun Modifier.scanning(on: Boolean): Modifier = if (!on) this else composed {
+    val accent = colors.accent
+    val x by rememberInfiniteTransition(label = "scan")
+        .animateFloat(-0.4f, 1.4f, infiniteRepeatable(tween(1100, easing = LinearEasing)), label = "x")
+    drawWithContent {
+        drawContent()
+        val band = size.width * 0.4f
+        val start = x * size.width - band / 2
+        drawRect(Brush.horizontalGradient(
+            listOf(Color.Transparent, accent.copy(alpha = 0.28f), Color.Transparent), startX = start, endX = start + band,
+        ))
+    }
+}
+
+private val PLATE = DpSize(220.dp, 160.dp)
 
 private val IMAGE_MAX_W = 280.dp
 private val IMAGE_MAX_H = 360.dp
