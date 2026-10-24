@@ -89,6 +89,8 @@ object AppGraph {
     val path = mutableStateMapOf<Long, String>()
     /** «Центр», диалог: собеседник печатает — до этого момента (epoch ms). */
     val typing = mutableStateMapOf<Long, Long>()
+    /** Черновики: беседа → неотправленный текст (в памяти, пока открыто хранилище). */
+    val drafts = mutableStateMapOf<Long, String>()
     /** Хранилище только что создано — предложить вход по отпечатку (один раз). */
     var offerBiometric by mutableStateOf(false)
 
@@ -264,6 +266,7 @@ object AppGraph {
         online.clear()
         waiting.clear()
         path.clear()
+        drafts.clear()
         screenshots = false
         MysService.stop(app)
         KeepAlive.stop(app)

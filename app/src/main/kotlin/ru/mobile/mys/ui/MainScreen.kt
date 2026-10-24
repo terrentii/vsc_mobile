@@ -259,8 +259,12 @@ private fun ConversationRow(
                 T(title, Modifier.weight(1f), size = 18, bold = true, maxLines = 1)
                 last?.let { m -> (m.sentAt ?: m.receivedAt)?.let { T(listTime(it), Modifier.padding(start = 8.dp), size = 12, color = c.text3, mono = true) } }
             }
-            T(if (meta?.role == "invited") "зовёт в диалог" else preview(last, p2p), size = 14,
-                color = if (meta?.role == "invited") c.accent else c.text2, maxLines = 1)
+            val draft = AppGraph.drafts[conv.id]?.takeIf { it.isNotBlank() }
+            when {
+                meta?.role == "invited" -> T("зовёт в диалог", size = 14, color = c.accent, maxLines = 1)
+                draft != null -> T("Черновик: ${draft.replace('\n', ' ')}", size = 14, color = c.warn, maxLines = 1)
+                else -> T(preview(last, p2p), size = 14, color = c.text2, maxLines = 1)
+            }
         }
     }
 }
