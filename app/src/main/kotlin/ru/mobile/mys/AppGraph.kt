@@ -53,6 +53,8 @@ object AppGraph {
     const val K_SERVER = "app.server"
     const val K_BACKGROUND = "app.background"
     const val K_AUTOLOCK = "app.autolock_min"
+    const val K_NOTIFY_TEXT = "app.notify_text"
+    const val K_SCREENSHOTS = "app.screenshots"
     const val P2P_WAIT_MS = 5 * 60_000L
     // Ключи mesh — как у десктопа (mys_mesh/prefs.py).
     const val K_MESH = "mesh.enabled"
@@ -95,6 +97,14 @@ object AppGraph {
 
     var dark by mutableStateOf(true)
         private set
+
+    /** Скриншоты и превью в «Недавних» разрешены (только пока хранилище открыто). */
+    var screenshots by mutableStateOf(false)
+        private set
+
+    fun allowScreenshots(on: Boolean) { setSetting(K_SCREENSHOTS, if (on) "1" else "0"); screenshots = on }
+
+    fun notifyText() = setting(K_NOTIFY_TEXT, "0") == "1"
 
     @Volatile var foreground = false
     @Volatile private var lastInteraction = SystemClock.elapsedRealtime()
@@ -208,7 +218,7 @@ object AppGraph {
                             else -> path.remove(e.conversationId)
                         }
                         is P2PEvent.Error -> errors.tryEmit(p2pMessage(e.error))
-                        is P2PEvent.Message -> notifyIfBackground()
+                        is P2PEvent.Message -> notifyIfBackground(e.conversationId, e.messageId)
                     }
                     changed()
                 }
@@ -217,11 +227,14 @@ object AppGraph {
                 c.events.collect { e ->
                     if (e is CentralEvent.Error) errors.tryEmit(centralMessage(e.error))
                     if (e is CentralEvent.Room && e.kind == "typing") typing[e.conversationId] = System.currentTimeMillis() + 5_000
-                    if (e is CentralEvent.Message && e.messageId != 0L && v.messages.get(e.messageId)?.direction == "in") notifyIfBackground()
+                    if (e is CentralEvent.Message && e.messageId != 0L && v.messages.get(e.messageId)?.direction == "in") {
+                        notifyIfBackground(e.conversationId, e.messageId)
+                    }
                     changed()
                 }
             },
         )
+        screenshots = v.settings.get(K_SCREENSHOTS) == "1"
         vault = v
         touch()
         if (c.hasSavedSession()) scope.launch {
@@ -251,6 +264,7 @@ object AppGraph {
         online.clear()
         waiting.clear()
         path.clear()
+        screenshots = false
         MysService.stop(app)
         KeepAlive.stop(app)
         return scope.launch {
@@ -307,7 +321,28 @@ object AppGraph {
         }
     }
 
-    private fun notifyIfBackground() { if (!foreground) Notifications.newMessage(app) }
+    private fun notifyIfBackground(conversationId: Long, messageId: Long) {
+        if (foreground) return
+        Notifications.newMessage(app, if (notifyText()) messagePreview(conversationId, messageId) else null)
+    }
+
+    /** Текст для уведомления: беседа, отправитель, сообщение (вложение — значком). */
+    private fun messagePreview(conversationId: Long, messageId: Long): Notifications.Preview? {
+        val v = vault ?: return null
+        val m = v.messages.get(messageId) ?: return null
+        val conv = v.conversations.get(conversationId)
+        val meta = central?.meta(conversationId)
+        val p2p = conv?.mode == DECENTRALIZED
+        val title = meta?.title ?: conv?.title?.takeIf { it.isNotBlank() } ?: if (p2p) "Собеседник" else "Комната"
+        val body = when (m.kind) {
+            "image" -> "🖼 Изображение"
+            "file" -> "📎 ${m.filename ?: "Файл"}"
+            else -> m.body?.decodeToString()?.take(500) ?: ""
+        }
+        // в комнате — кто написал; в диалоге и P2P собеседник один
+        val text = if (!p2p && meta?.isDialog != true && m.sender != null) "${m.sender}: $body" else body
+        return Notifications.Preview(conversationId, title, text)
+    }
 
     fun p2pMessage(e: Throwable): String = when (e) {
         is PakeException -> "Неверная фраза или перехват — канал разорван"

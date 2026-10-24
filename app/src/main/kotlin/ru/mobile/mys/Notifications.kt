@@ -12,7 +12,10 @@ import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
 import androidx.core.content.ContextCompat
 
-/** Уведомления без содержимого: ни текста, ни отправителя — только факт. */
+/**
+ * По умолчанию уведомления без содержимого — только факт. С настройкой «текст в
+ * уведомлениях» — беседа и сообщение; на экране блокировки всё равно только факт.
+ */
 object Notifications {
     private const val CH_SERVICE = "service"
     private const val CH_MESSAGES = "messages"
@@ -32,17 +35,34 @@ object Notifications {
         .setContentIntent(openApp(ctx))
         .build()
 
-    fun newMessage(ctx: Context) {
+    class Preview(val conversationId: Long, val title: String, val text: String)
+
+    fun newMessage(ctx: Context, preview: Preview? = null) {
         val granted = ContextCompat.checkSelfPermission(ctx, Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED
         if (!granted && android.os.Build.VERSION.SDK_INT >= 33) return
-        val n = NotificationCompat.Builder(ctx, CH_MESSAGES)
+        val bare = NotificationCompat.Builder(ctx, CH_MESSAGES)
             .setSmallIcon(R.drawable.ic_stat)
             .setContentTitle("Новое сообщение")
             .setAutoCancel(true)
             .setVisibility(NotificationCompat.VISIBILITY_PUBLIC) // содержимого нет — скрывать нечего
             .setContentIntent(openApp(ctx))
             .build()
-        NotificationManagerCompat.from(ctx).notify(ID_MESSAGE, n)
+        if (preview == null) {
+            NotificationManagerCompat.from(ctx).notify(ID_MESSAGE, bare)
+            return
+        }
+        val n = NotificationCompat.Builder(ctx, CH_MESSAGES)
+            .setSmallIcon(R.drawable.ic_stat)
+            .setContentTitle(preview.title)
+            .setContentText(preview.text)
+            .setStyle(NotificationCompat.BigTextStyle().bigText(preview.text))
+            .setAutoCancel(true)
+            .setVisibility(NotificationCompat.VISIBILITY_PRIVATE)
+            .setPublicVersion(bare) // экран блокировки — без текста
+            .setContentIntent(openApp(ctx))
+            .build()
+        // своё уведомление на беседу: новое сообщение заменяет прежнее из той же беседы
+        NotificationManagerCompat.from(ctx).notify(ID_MESSAGE + 1000 + (preview.conversationId % 100_000).toInt(), n)
     }
 
     private fun openApp(ctx: Context): PendingIntent = PendingIntent.getActivity(
