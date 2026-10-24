@@ -75,6 +75,7 @@ class ScreenshotTest {
         v.messages.add(conv, "out", "А это ещё в пути".toByteArray(), "pending")
         v.messages.add(conv, "in", png(1600, 900, 0xFF2E7D32.toInt()), "received", kind = "image", filename = "гор.png")
         v.messages.add(conv, "out", png(900, 1600, 0xFF4D7BFF.toInt()), "sent", kind = "image", filename = "верт.png")
+        v.messages.add(conv, "in", null, "received", kind = "image", filename = "ещё качается.png") // заглушка загрузки
         v.messages.add(conv, "in", "Смотри:\n```\nfun main() {\n    println(\"МЫС\")\n}\n```".toByteArray(), "received")
         v.conversations.setPinned(conv, true)
         for (i in 1..12) v.conversations.add(DECENTRALIZED, roomId = byteArrayOf((10 + i).toByte()), title = "Канал №$i")
